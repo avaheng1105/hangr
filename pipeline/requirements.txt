@@ -1,0 +1,8 @@
+# Core pipeline (no ML models): enough for --cutout colorkey --depth inflate
+numpy>=2.0
+pillow>=11.0
+scipy>=1.13
+
+# Image-edit providers (only the one you use is needed)
+openai>=2.0
+google-genai>=1.30

@@ -1,0 +1,10 @@
+# Everything for the GPU worker (installed into the Modal image).
+# Self-contained on purpose: Modal installs this file on its own.
+numpy>=2.0
+pillow>=11.0
+scipy>=1.13
+openai>=2.0
+google-genai>=1.30
+rembg[gpu]>=2.0.60
+torch>=2.4
+transformers>=4.45

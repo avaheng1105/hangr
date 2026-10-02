@@ -1,0 +1,76 @@
+# Hangr image pipeline
+
+Turns a clothing photo into the files the tilt viewer needs.
+
+```
+photo ─► enhance (image-edit model, optional)
+      ─► fidelity check ── fail twice ─► fall back to the original photo
+      ─► background removal + framing (square, centred, 10% margin)
+      ─► depth map
+      ─► original.webp · enhanced.webp · cutout.png · depth.png · thumb.webp · meta.json
+```
+
+| Output | What it is |
+|---|---|
+| `original.webp` | The uploaded photo, rotated upright and capped at 2048 px |
+| `enhanced.webp` | The image-edit model's result (present when enhance ran, even if rejected) |
+| `cutout.png` | 1024×1024 RGBA garment on a transparent background — the viewer's colour texture |
+| `depth.png` | 1024×1024 depth map, **16-bit packed into R (high byte) and G (low byte)** — see `depth.encode_16bit` |
+| `thumb.webp` | 256×256 cutout for closet grids |
+| `meta.json` | Which steps ran, fidelity scores, prompt version, timings |
+
+## Each step, and its no-ML fallback
+
+| Step | GPU / API version | Fallback (runs anywhere) |
+|---|---|---|
+| Enhance | OpenAI (`gpt-image-2`) or Gemini (`gemini-3.1-flash-image`) image editing, prompt in `prompts.py` | `--enhance none` |
+| Fidelity | Colour-histogram comparison of the garment before/after (`fidelity.py`) | — |
+| Cutout | BiRefNet via `rembg` | `--cutout colorkey`: flood-fills a plain background from the border |
+| Depth | Depth Anything V2 (Small), blended 50/50 with an "inflated" silhouette | `--depth inflate`: silhouette inflation only |
+
+The inflation term matters: a flat-lay photo gives an almost flat ML depth map,
+so the silhouette inflation is what gives the garment its soft, rounded volume.
+Tune the blend with `PipelineConfig.depth_model_mix`.
+
+Model names are set in `config.py` and can be overridden with
+`HANGR_OPENAI_IMAGE_MODEL` / `HANGR_GEMINI_IMAGE_MODEL`. Check the providers'
+current model lists and pricing before you pick one.
+
+## Run locally (CPU, no ML)
+
+```bash
+cd pipeline
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
+
+python scripts/make_sample_photo.py samples/tshirt.jpg      # synthetic test photo
+python -m hangr_pipeline samples/tshirt.jpg -o out --cutout colorkey --depth inflate
+
+# Add the image-edit step (needs OPENAI_API_KEY or GEMINI_API_KEY):
+python -m hangr_pipeline photo.jpg -o out --enhance openai --cutout colorkey --depth inflate
+
+pytest
+```
+
+To preview your own output in the app, copy `out/cutout.png` and `out/depth.png`
+into `app/assets/sample/`.
+
+## Run on a GPU (Modal)
+
+```bash
+pip install modal && modal setup                       # one-time login
+modal secret create hangr-ai-keys OPENAI_API_KEY=sk-... GEMINI_API_KEY=...
+
+modal run modal_app.py --photo photo.jpg --enhance openai   # results in ./out
+modal deploy modal_app.py                                   # for the backend to call later
+```
+
+The first `modal run` builds the container image (CUDA, PyTorch, model
+weights) and takes several minutes. After that, a cold start loads the models
+in seconds, and a warm worker processes an item in roughly 1–3 s plus the
+image-edit API call. Workers shut down after 2 minutes idle (`scaledown_window`).
+
+> The ML path (BiRefNet, Depth Anything, Modal) hasn't been run yet: the
+> environment this was built in couldn't download model weights. The no-ML
+> path and the provider integrations (with mocked SDK clients) are covered by
+> the tests.

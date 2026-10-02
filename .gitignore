@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Pipeline outputs
+pipeline/out/
+
+# Secrets
+.env
+.env.*
+
+.DS_Store
