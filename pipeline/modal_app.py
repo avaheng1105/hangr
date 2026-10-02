@@ -9,7 +9,7 @@ One-time setup:
     modal secret create hangr-ai-keys OPENAI_API_KEY=... GEMINI_API_KEY=...
 
 Try it on a photo (outputs land in ./out):
-    modal run modal_app.py --photo samples/tshirt.jpg --enhance openai
+    modal run modal_app.py --photo samples/tshirt.jpg --enhance openai --category top
 
 Deploy (so the Supabase backend can call it later):
     modal deploy modal_app.py
@@ -60,20 +60,21 @@ class Pipeline:
         load_models(self.cfg)
 
     @modal.method()
-    def process(self, photo: bytes, enhance_provider: str = "none") -> dict:
+    def process(self, photo: bytes, enhance_provider: str = "none", category: str = "auto") -> dict:
         from hangr_pipeline import process
 
-        result = process(photo, replace(self.cfg, enhance_provider=enhance_provider))
+        cfg = replace(self.cfg, enhance_provider=enhance_provider, category=category)
+        result = process(photo, cfg)
         return {"assets": result.assets, "meta": result.meta}
 
 
 @app.local_entrypoint()
-def main(photo: str, out: str = "out", enhance: str = "none") -> None:
+def main(photo: str, out: str = "out", enhance: str = "none", category: str = "auto") -> None:
     import json
 
     from hangr_pipeline.__main__ import write_result
 
-    result = Pipeline().process.remote(Path(photo).read_bytes(), enhance)
+    result = Pipeline().process.remote(Path(photo).read_bytes(), enhance, category)
     write_result(result["assets"], result["meta"], Path(out))
     print(json.dumps(result["meta"], indent=2))
     print(f"wrote {len(result['assets']) + 1} files to {out}/")

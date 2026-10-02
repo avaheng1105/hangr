@@ -23,7 +23,7 @@ photo ─► enhance (image-edit model, optional)
 
 | Step | GPU / API version | Fallback (runs anywhere) |
 |---|---|---|
-| Enhance | OpenAI (`gpt-image-2`) or Gemini (`gemini-3.1-flash-image`) image editing, prompt in `prompts.py` | `--enhance none` |
+| Enhance | OpenAI (`gpt-image-2`) or Gemini (`gemini-3.1-flash-image`) image editing. The prompt depends on `--category` (top, outerwear, dress, bottom, shoes, bag, jewelry, accessory, or auto): clothes get the ghost-mannequin look, other items a catalogue product shot (`prompts.py`) | `--enhance none` |
 | Fidelity | Colour-histogram comparison of the garment before/after (`fidelity.py`) | — |
 | Cutout | BiRefNet via `rembg` | `--cutout colorkey`: flood-fills a plain background from the border |
 | Depth | Depth Anything V2 (Small), blended 50/50 with an "inflated" silhouette | `--depth inflate`: silhouette inflation only |
@@ -47,7 +47,7 @@ python scripts/make_sample_photo.py samples/tshirt.jpg      # synthetic test pho
 python -m hangr_pipeline samples/tshirt.jpg -o out --cutout colorkey --depth inflate
 
 # Add the image-edit step (needs OPENAI_API_KEY or GEMINI_API_KEY):
-python -m hangr_pipeline photo.jpg -o out --enhance openai --cutout colorkey --depth inflate
+python -m hangr_pipeline photo.jpg -o out --enhance openai --category top --cutout colorkey --depth inflate
 
 pytest
 ```
@@ -61,7 +61,7 @@ into `app/assets/sample/`.
 pip install modal && modal setup                       # one-time login
 modal secret create hangr-ai-keys OPENAI_API_KEY=sk-... GEMINI_API_KEY=...
 
-modal run modal_app.py --photo photo.jpg --enhance openai   # results in ./out
+modal run modal_app.py --photo photo.jpg --enhance openai --category top   # results in ./out
 modal deploy modal_app.py                                   # for the backend to call later
 ```
 

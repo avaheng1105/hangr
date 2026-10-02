@@ -9,6 +9,7 @@ from PIL import Image
 from hangr_pipeline import PipelineConfig
 from hangr_pipeline.enhance import EnhanceError, enhance
 from hangr_pipeline.imageio import from_bytes, to_png_bytes
+from hangr_pipeline.prompts import build_prompt
 
 INPUT = Image.new("RGB", (3000, 2000), (200, 30, 30))
 OUTPUT = Image.new("RGB", (64, 64), (10, 200, 10))
@@ -40,12 +41,13 @@ def fake_openai(monkeypatch):
 
 
 def test_openai_edit(fake_openai):
-    cfg = PipelineConfig(enhance_provider="openai", openai_model="test-model")
+    cfg = PipelineConfig(enhance_provider="openai", openai_model="test-model", category="shoes")
     out = enhance(INPUT, cfg)
     assert out.size == (64, 64) and out.getpixel((0, 0))[:3] == (10, 200, 10)
 
     call = fake_openai.calls[0]
     assert call["model"] == "test-model"
+    assert call["prompt"] == build_prompt("shoes")
     name, data, mime = call["image"]
     assert mime == "image/png"
     # Large photos are downscaled before upload.

@@ -13,7 +13,7 @@ from PIL import Image
 
 from .config import PipelineConfig
 from .imageio import from_bytes, to_png_bytes
-from .prompts import ENHANCE_PROMPT
+from .prompts import build_prompt
 
 # Image-edit models work at roughly 1-1.5k px; sending more just costs time.
 _MAX_UPLOAD = 1536
@@ -45,7 +45,7 @@ def _enhance_openai(image: Image.Image, cfg: PipelineConfig) -> Image.Image:
     result = client.images.edit(
         model=cfg.openai_model,
         image=("garment.png", _prepare(image), "image/png"),
-        prompt=ENHANCE_PROMPT,
+        prompt=build_prompt(cfg.category),
         size="auto",
         quality="high",
         output_format="png",
@@ -64,7 +64,7 @@ def _enhance_gemini(image: Image.Image, cfg: PipelineConfig) -> Image.Image:
         model=cfg.gemini_model,
         contents=[
             types.Part.from_bytes(data=_prepare(image), mime_type="image/png"),
-            ENHANCE_PROMPT,
+            build_prompt(cfg.category),
         ],
         config=types.GenerateContentConfig(response_modalities=["IMAGE"]),
     )

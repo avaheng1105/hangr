@@ -1,7 +1,7 @@
 """Run the pipeline on a local photo.
 
     python -m hangr_pipeline photo.jpg -o out/
-    python -m hangr_pipeline photo.jpg -o out/ --enhance openai
+    python -m hangr_pipeline photo.jpg -o out/ --enhance openai --category top
     python -m hangr_pipeline photo.jpg -o out/ --cutout colorkey --depth inflate   # no ML
 """
 
@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .config import PipelineConfig
 from .pipeline import process
+from .prompts import CATEGORIES
 
 
 def main() -> None:
@@ -22,12 +23,14 @@ def main() -> None:
     parser.add_argument("photo", type=Path)
     parser.add_argument("-o", "--out", type=Path, default=Path("out"))
     parser.add_argument("--enhance", choices=["none", "openai", "gemini"])
+    parser.add_argument("--category", choices=CATEGORIES, default="auto",
+                        help="item type, picks the enhance styling (default: auto)")
     parser.add_argument("--cutout", choices=["model", "colorkey"])
     parser.add_argument("--depth", choices=["model", "inflate"])
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    cfg = PipelineConfig()
+    cfg = PipelineConfig(category=args.category)
     if args.enhance:
         cfg.enhance_provider = args.enhance
     if args.cutout:

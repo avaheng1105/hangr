@@ -21,7 +21,7 @@ from . import cutout, depth, fidelity
 from .config import PipelineConfig
 from .enhance import enhance
 from .imageio import from_bytes, from_float, normalize, to_png_bytes, to_webp_bytes
-from .prompts import ENHANCE_PROMPT_VERSION
+from .prompts import ENHANCE_PROMPT_VERSION, build_prompt
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +41,8 @@ def load_models(cfg: PipelineConfig) -> None:
 
 def process(photo: bytes | Image.Image, cfg: PipelineConfig | None = None) -> PipelineResult:
     cfg = cfg or PipelineConfig()
+    if cfg.enhance_provider != "none":
+        build_prompt(cfg.category)  # fail fast on a bad category, before any work
     timings: dict[str, float] = {}
 
     def timed(name: str, fn, *args):
@@ -61,6 +63,7 @@ def process(photo: bytes | Image.Image, cfg: PipelineConfig | None = None) -> Pi
     enhance_meta: dict = {"provider": cfg.enhance_provider, "used": False}
     if cfg.enhance_provider != "none":
         enhance_meta["prompt_version"] = ENHANCE_PROMPT_VERSION
+        enhance_meta["category"] = cfg.category
         enhance_meta["attempts"] = []
         for _ in range(1 + cfg.enhance_retries):
             attempt: dict = {}

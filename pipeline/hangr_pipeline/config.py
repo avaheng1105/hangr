@@ -29,6 +29,9 @@ class PipelineConfig:
     gemini_model: str = field(
         default_factory=lambda: _env("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image")
     )
+    # Item type, which picks the styling in the prompt (see prompts.CATEGORIES).
+    # "auto" lets the image model decide.
+    category: str = "auto"
     # Retries of the enhance step when the fidelity check fails, before
     # falling back to the original photo.
     enhance_retries: int = 1
