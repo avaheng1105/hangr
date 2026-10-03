@@ -8,10 +8,8 @@ from PIL import Image
 
 from hangr_pipeline import PipelineConfig, pipeline, process
 from hangr_pipeline.cutout import alpha_colorkey, frame
-from hangr_pipeline.depth import decode_16bit, encode_16bit, inflate
 from hangr_pipeline.fidelity import similarity
 from hangr_pipeline.imageio import to_float
-from hangr_pipeline.imageio import to_png_bytes as to_png
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from make_sample_photo import make_photo, shirt_mask  # noqa: E402
@@ -25,7 +23,7 @@ def photo() -> Image.Image:
 
 
 def no_ml(**overrides) -> PipelineConfig:
-    cfg = PipelineConfig(enhance_provider="none", cutout_method="colorkey", depth_method="inflate")
+    cfg = PipelineConfig(enhance_provider="none", cutout_method="colorkey")
     for key, value in overrides.items():
         setattr(cfg, key, value)
     return cfg
@@ -48,23 +46,6 @@ def test_frame_is_square_and_padded(photo):
     assert rgb[alpha == 0].mean() > 0.2
 
 
-def test_inflate_is_zero_outside_and_peaks_inside():
-    alpha = np.zeros((100, 100), dtype=np.float32)
-    alpha[20:80, 30:70] = 1.0
-    depth = inflate(alpha)
-    assert depth[alpha == 0].max() == 0
-    assert depth.max() == pytest.approx(1.0)
-    assert depth[50, 50] > depth[50, 32]
-
-
-def test_depth_16bit_round_trip():
-    depth = np.linspace(0, 1, 4096, dtype=np.float32).reshape(64, 64)
-    decoded = decode_16bit(Image.open(io.BytesIO(to_png(encode_16bit(depth)))))
-    assert np.abs(decoded - depth).max() < 1 / 65535 + 1e-6
-    # Many more distinct levels than 8-bit's 256.
-    assert len(np.unique(decoded)) == 4096
-
-
 def test_fidelity_separates_same_from_recoloured(photo):
     rgb = to_float(photo)
     alpha = alpha_colorkey(photo)
@@ -78,15 +59,12 @@ def test_process_without_ml(photo):
     photo.save(buf, format="JPEG")
     result = process(buf.getvalue(), no_ml(output_size=256))
 
-    assert set(result.assets) == {"original.webp", "cutout.png", "depth.png", "thumb.webp"}
+    assert set(result.assets) == {"original.webp", "cutout.png", "thumb.webp"}
     cutout = Image.open(io.BytesIO(result.assets["cutout.png"]))
-    depth = Image.open(io.BytesIO(result.assets["depth.png"]))
     assert cutout.mode == "RGBA" and cutout.size == (256, 256)
-    assert depth.size == (256, 256)
-    # Depth only where the garment is.
+    # Transparent corners, solid garment in the middle.
     a = np.asarray(cutout)[..., 3]
-    d = decode_16bit(depth)
-    assert d[a == 0].max() == 0 and d.max() == pytest.approx(1.0)
+    assert a[0, 0] == 0 and a[128, 128] == 255
     assert result.meta["enhance"] == {"provider": "none", "used": False}
 
 

@@ -1,7 +1,7 @@
 """Draw a synthetic "phone photo" of a striped T-shirt on a plain background.
 
-Used for tests and for the viewer's built-in sample, so the prototype works
-without real photos or ML models. Replace with real photos when you have them.
+Used for tests, so the pipeline can be exercised without real photos or ML
+models. Replace with real photos when you have them.
 
     python scripts/make_sample_photo.py samples/tshirt.jpg
 """

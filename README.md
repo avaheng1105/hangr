@@ -1,49 +1,36 @@
 # Hangr
 
-A closet app: photograph your clothes, and they appear as polished, "3D-ish"
-items that tilt and catch the light as you move your phone. Then mix them into
-outfits.
+A closet app modelled on [Starlook](https://apps.apple.com/us/app/starlook/id6764362627):
+photograph your clothes and they're redrawn as clean e-commerce product shots,
+looking worn by an invisible mannequin. Then mix them into outfits.
 
-![Tilt viewer: resting, tilted right, tilted left, depth map](docs/viewer-preview.png)
-
-This repo currently holds the two prototypes that prove the core effect:
+See [`docs/starlook-notes.md`](docs/starlook-notes.md) for the look and the
+screens we're replicating.
 
 | Folder | What | Stack |
 |---|---|---|
-| [`pipeline/`](pipeline/README.md) | Photo → polished cutout + depth map | Python; OpenAI/Gemini image editing; BiRefNet + Depth Anything on a Modal GPU |
-| [`app/`](app/) | The interactive tilt viewer | Expo (React Native) + raw WebGL via `expo-gl` |
+| [`pipeline/`](pipeline/README.md) | Photo → product shot → transparent cutout | Python; OpenAI/Gemini image editing; BiRefNet on a Modal GPU |
+| [`app/`](app/) | The mobile app (currently a placeholder wardrobe screen) | Expo (React Native) + TypeScript |
 
-## How the effect works
+## How an item is processed
 
-1. **Enhance**: an image-edit model turns the phone photo into a clean
-   "ghost mannequin" product shot. A colour check compares it with the
-   original photo and falls back to the original if the model changed the
-   garment.
-2. **Cutout**: background removal gives a transparent PNG, cropped and centred.
-3. **Depth**: a depth map says how far each pixel bulges towards you.
-4. **Viewer**: the app draws the cutout on a finely subdivided mesh, pushes
-   each vertex forward by the depth map, lights it with normals derived from
-   that depth, and drops a soft shadow on a card behind it. The phone's motion
-   sensor (or a finger drag) tilts the mesh, so you see real parallax and the
-   outline changes shape.
+1. **Enhance:** an image-edit model redraws the photo as a catalogue shot.
+   Clothes are shown on an invisible (ghost) mannequin with body volume; shoes,
+   bags and jewellery as product photos. The prompt depends on the item's
+   category.
+2. **Fidelity check:** the garment's colours are compared before and after.
+   If the model changed the item, it retries once and then falls back to the
+   original photo.
+3. **Cutout:** background removal, cropped and centred on a square, plus a
+   thumbnail for the grid.
 
-## Run the viewer
+## Run the app
 
 ```bash
 cd app
 npm install
 npx expo start          # press w for web, or scan the QR code with Expo Go
 ```
-
-- **Phone (Expo Go):** tilt the phone, or drag the item.
-- **Web:** drag the item. Browsers don't expose the motion sensor here, so
-  the item sways gently on its own when idle.
-- Use the **Depth** chips to compare Flat, Soft and Puffy, and
-  **Show depth map** to see what the pipeline produced.
-
-The bundled sample (`app/assets/sample/`) is the pipeline's output for a
-synthetic T-shirt photo. See [`pipeline/README.md`](pipeline/README.md) to
-process your own photos.
 
 ## Planned architecture
 
@@ -57,7 +44,6 @@ process your own photos.
 
 ## Next steps
 
-1. Try the viewer on a real phone and tune the tilt direction, sensitivity and depth.
-2. Run the Modal worker on real clothing photos and compare enhance providers.
-3. Add Supabase: auth, the `items` / `item_assets` / `outfits` tables, and the upload → worker flow.
-4. Build the closet grid and outfit builder around the viewer.
+1. Run the enhance step on real clothing photos and tune the prompt against Starlook's look.
+2. Add Supabase: auth, the `items` / `item_assets` / `outfits` tables, and the upload → worker flow.
+3. Build the Starlook screens: wardrobe grid, batch import with auto-tagging, outfit shuffler, canvas, calendar.

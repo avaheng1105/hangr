@@ -1,8 +1,8 @@
 """GPU worker on Modal.
 
-Runs the full pipeline with the ML models (BiRefNet cutout + Depth Anything
-depth). Model weights are baked into the container image at build time, so
-a cold start only has to load them onto the GPU.
+Runs the full pipeline with the BiRefNet background-removal model. The model
+weights are baked into the container image at build time, so a cold start
+only has to load them onto the GPU.
 
 One-time setup:
     pip install modal && modal setup
@@ -31,14 +31,14 @@ app = modal.App("hangr-pipeline")
 def _download_models() -> None:
     from hangr_pipeline import PipelineConfig, load_models
 
-    load_models(PipelineConfig(cutout_method="model", depth_method="model"))
+    load_models(PipelineConfig(cutout_method="model"))
 
 
 image = (
     # CUDA + cuDNN runtime, needed by onnxruntime-gpu (used by rembg).
     modal.Image.from_registry("nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04", add_python="3.11")
     .pip_install_from_requirements(str(HERE / "requirements-gpu.txt"))
-    .env({"HF_HOME": f"{MODELS_DIR}/hf", "U2NET_HOME": f"{MODELS_DIR}/rembg"})
+    .env({"U2NET_HOME": f"{MODELS_DIR}/rembg"})
     .add_local_python_source("hangr_pipeline", copy=True)
     .run_function(_download_models)
 )
@@ -56,7 +56,7 @@ class Pipeline:
     def load(self) -> None:
         from hangr_pipeline import PipelineConfig, load_models
 
-        self.cfg = PipelineConfig(cutout_method="model", depth_method="model")
+        self.cfg = PipelineConfig(cutout_method="model")
         load_models(self.cfg)
 
     @modal.method()

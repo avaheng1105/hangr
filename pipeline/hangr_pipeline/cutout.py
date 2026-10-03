@@ -2,7 +2,7 @@
 
 `alpha_mask` returns a soft alpha matte (float32, 0..1, shape HxW).
 `frame` crops the garment, centres it on a square canvas and fixes the
-colours of transparent pixels so the viewer has no dark fringes.
+colours of transparent pixels so resized or composited images get no dark fringes.
 """
 
 from __future__ import annotations

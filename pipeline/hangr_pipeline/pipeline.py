@@ -1,11 +1,10 @@
-"""The full item pipeline: photo in, viewer assets out.
+"""The full item pipeline: photo in, product-shot assets out.
 
     original photo
       -> enhance (image-edit model)          optional, falls back to original
       -> fidelity check (colour histogram)   retry, then fall back
       -> background removal + framing
-      -> depth map
-      -> assets: original, enhanced, cutout, depth, thumb + metadata
+      -> assets: original, enhanced, cutout, thumb + metadata
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from PIL import Image
 
-from . import cutout, depth, fidelity
+from . import cutout, fidelity
 from .config import PipelineConfig
 from .enhance import enhance
 from .imageio import from_bytes, from_float, normalize, to_png_bytes, to_webp_bytes
@@ -36,7 +35,6 @@ class PipelineResult:
 def load_models(cfg: PipelineConfig) -> None:
     """Load ML models up front so the first item isn't slow."""
     cutout.load_models(cfg)
-    depth.load_models(cfg)
 
 
 def process(photo: bytes | Image.Image, cfg: PipelineConfig | None = None) -> PipelineResult:
@@ -85,18 +83,14 @@ def process(photo: bytes | Image.Image, cfg: PipelineConfig | None = None) -> Pi
                 break
             log.warning("enhanced image failed fidelity check (%.2f)", score)
 
-    depth_arr = timed("depth", depth.depth_map, rgb, alpha, cfg)
-
     cutout_img = from_float(np.dstack([rgb, alpha]))
     result.assets["cutout.png"] = to_png_bytes(cutout_img)
-    result.assets["depth.png"] = to_png_bytes(depth.encode_16bit(depth_arr))
     thumb = cutout_img.resize((cfg.thumb_size, cfg.thumb_size), Image.Resampling.LANCZOS)
     result.assets["thumb.webp"] = to_webp_bytes(thumb)
 
     result.meta = {
         "enhance": enhance_meta,
         "cutout_method": cfg.cutout_method,
-        "depth_method": cfg.depth_method,
         "size": cfg.output_size,
         "timings_s": timings,
     }

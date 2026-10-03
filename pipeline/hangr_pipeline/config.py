@@ -12,7 +12,6 @@ from typing import Literal
 
 EnhanceProvider = Literal["none", "openai", "gemini"]
 CutoutMethod = Literal["model", "colorkey"]
-DepthMethod = Literal["model", "inflate"]
 
 
 def _env(name: str, default: str) -> str:
@@ -46,22 +45,9 @@ class PipelineConfig:
     )
     rembg_model: str = "birefnet-general"
 
-    # Step 3: depth map.
-    #   model   -> Depth Anything V2 blended with a silhouette "inflation"
-    #   inflate -> silhouette inflation only (no ML)
-    depth_method: DepthMethod = field(
-        default_factory=lambda: _env("DEPTH_METHOD", "model")  # type: ignore[return-value]
-    )
-    depth_model: str = "depth-anything/Depth-Anything-V2-Small-hf"
-    # How much of the ML depth to keep vs. the inflation shape (0..1).
-    # Clothes photographed flat give a nearly flat ML depth map; the
-    # inflation term gives them a soft, rounded volume.
-    depth_model_mix: float = 0.5
-
     # Output sizes.
     max_input_size: int = 2048
     output_size: int = 1024
     thumb_size: int = 256
     # Empty margin around the garment, as a fraction of the output size.
-    # Leaves room for the soft shadow and tilt in the viewer.
     padding: float = 0.1

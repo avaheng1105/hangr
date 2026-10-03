@@ -19,7 +19,7 @@ public.
 - Non-clothing items get product-shot styling: shoes as a pair at a
   three-quarter angle, bags upright with straps up, earrings as a pair.
 - **No interactive 3D.** The "3D-ish" feel comes entirely from the generated
-  mannequin volume and lighting. Our tilt viewer is an extra on top of that.
+  mannequin volume and lighting, so Hangr doesn't do 3D either.
 
 This look is what `pipeline/hangr_pipeline/prompts.py` (v2) targets: one
 shared set of rules (lighting, background, keep every detail) plus a styling

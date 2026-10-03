@@ -33,6 +33,6 @@ def test_unknown_category_fails_fast():
     with pytest.raises(ValueError, match="unknown category"):
         build_prompt("hat")
     cfg = PipelineConfig(enhance_provider="openai", cutout_method="colorkey",
-                         depth_method="inflate", category="hat")
+                         category="hat")
     with pytest.raises(ValueError, match="unknown category"):
         process(Image.new("RGB", (64, 64), "white"), cfg)

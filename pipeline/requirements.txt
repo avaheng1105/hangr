@@ -1,4 +1,4 @@
-# Core pipeline (no ML models): enough for --cutout colorkey --depth inflate
+# Core pipeline (no ML models): enough for --cutout colorkey
 numpy>=2.0
 pillow>=11.0
 scipy>=1.13

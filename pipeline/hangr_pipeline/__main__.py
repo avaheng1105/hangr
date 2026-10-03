@@ -2,7 +2,7 @@
 
     python -m hangr_pipeline photo.jpg -o out/
     python -m hangr_pipeline photo.jpg -o out/ --enhance openai --category top
-    python -m hangr_pipeline photo.jpg -o out/ --cutout colorkey --depth inflate   # no ML
+    python -m hangr_pipeline photo.jpg -o out/ --cutout colorkey   # no ML
 """
 
 from __future__ import annotations
@@ -26,7 +26,6 @@ def main() -> None:
     parser.add_argument("--category", choices=CATEGORIES, default="auto",
                         help="item type, picks the enhance styling (default: auto)")
     parser.add_argument("--cutout", choices=["model", "colorkey"])
-    parser.add_argument("--depth", choices=["model", "inflate"])
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -35,8 +34,6 @@ def main() -> None:
         cfg.enhance_provider = args.enhance
     if args.cutout:
         cfg.cutout_method = args.cutout
-    if args.depth:
-        cfg.depth_method = args.depth
 
     result = process(args.photo.read_bytes(), cfg)
     write_result(result.assets, result.meta, args.out)
