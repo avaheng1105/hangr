@@ -112,6 +112,65 @@ def test_gemini_judge_parses_structured_verdict(monkeypatch):
     assert len(calls[0]["contents"]) == 3  # original, enhanced, instructions
 
 
+def _flaky_judge(monkeypatch, failures):
+    """A fake genai client whose judge call raises each of `failures` first."""
+    from google import genai
+
+    calls = []
+    pending = list(failures)
+
+    class FakeModels:
+        def generate_content(self, **kwargs):
+            calls.append(kwargs)
+            if pending:
+                raise pending.pop(0)
+            schema = kwargs["config"].response_schema
+            return SimpleNamespace(parsed=schema(score=8, issues=[]), text="")
+
+    class FakeClient:
+        def __init__(self):
+            self.models = FakeModels()
+
+    monkeypatch.setattr(genai, "Client", FakeClient)
+    return calls
+
+
+def test_judge_retries_transient_errors(monkeypatch):
+    from google.genai import errors
+
+    from hangr_pipeline.fidelity import judge_gemini
+
+    unavailable = errors.ServerError(503, {"error": {"message": "overloaded"}})
+    calls = _flaky_judge(monkeypatch, [unavailable, unavailable])
+    cfg = PipelineConfig(judge_retries=2, judge_retry_delay=0)
+    assert judge_gemini(INPUT, OUTPUT, cfg).score == 8
+    assert len(calls) == 3
+
+
+def test_judge_gives_up_after_its_retries(monkeypatch):
+    from google.genai import errors
+
+    from hangr_pipeline.fidelity import judge_gemini
+
+    unavailable = errors.ServerError(503, {"error": {"message": "overloaded"}})
+    calls = _flaky_judge(monkeypatch, [unavailable] * 5)
+    with pytest.raises(errors.ServerError):
+        judge_gemini(INPUT, OUTPUT, PipelineConfig(judge_retries=2, judge_retry_delay=0))
+    assert len(calls) == 3
+
+
+def test_judge_does_not_retry_permanent_errors(monkeypatch):
+    from google.genai import errors
+
+    from hangr_pipeline.fidelity import judge_gemini
+
+    bad_key = errors.ClientError(403, {"error": {"message": "permission denied"}})
+    calls = _flaky_judge(monkeypatch, [bad_key])
+    with pytest.raises(errors.ClientError):
+        judge_gemini(INPUT, OUTPUT, PipelineConfig(judge_retry_delay=0))
+    assert len(calls) == 1
+
+
 def test_background_contrasts_with_the_item():
     from hangr_pipeline.enhance import pick_background
     from hangr_pipeline.prompts import DARK_BACKGROUND, LIGHT_BACKGROUND

@@ -13,6 +13,8 @@ Two methods:
 
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -21,6 +23,8 @@ from scipy import ndimage
 
 from .config import PipelineConfig
 from .imageio import to_png_bytes
+
+log = logging.getLogger(__name__)
 
 _BINS = 6  # per channel -> 216 colour buckets
 
@@ -101,16 +105,39 @@ def judge_gemini(original: Image.Image, enhanced: Image.Image, cfg: PipelineConf
         return types.Part.from_bytes(data=to_png_bytes(image), mime_type="image/png")
 
     client = genai.Client()
-    response = client.models.generate_content(
-        model=cfg.judge_model,
-        contents=[part(original), part(enhanced), _JUDGE_PROMPT],
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=_Schema,
-            temperature=0,
-        ),
+    contents = [part(original), part(enhanced), _JUDGE_PROMPT]
+    config = types.GenerateContentConfig(
+        response_mime_type="application/json",
+        response_schema=_Schema,
+        temperature=0,
     )
+    for attempt in range(1 + cfg.judge_retries):
+        try:
+            response = client.models.generate_content(
+                model=cfg.judge_model, contents=contents, config=config
+            )
+            break
+        except Exception as exc:
+            if attempt == cfg.judge_retries or not is_transient(exc):
+                raise
+            delay = cfg.judge_retry_delay * 2**attempt
+            log.warning("judge call failed (%s), retrying in %.0fs", exc, delay)
+            time.sleep(delay)
     parsed = response.parsed
     if not isinstance(parsed, _Schema):
         raise RuntimeError(f"judge returned no verdict: {response.text!r}")
     return Verdict(score=max(1, min(10, parsed.score)), issues=parsed.issues)
+
+
+# Rate limits and server-side failures usually clear within seconds.
+_TRANSIENT_CODES = {408, 429, 500, 502, 503, 504}
+
+
+def is_transient(exc: Exception) -> bool:
+    """Whether retrying the same request might succeed."""
+    import httpx
+    from google.genai import errors
+
+    if isinstance(exc, errors.APIError):
+        return exc.code in _TRANSIENT_CODES
+    return isinstance(exc, (httpx.TimeoutException, httpx.TransportError, ConnectionError))
