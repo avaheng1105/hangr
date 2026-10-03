@@ -85,23 +85,29 @@ web_image = modal.Image.debian_slim(python_version="3.11").pip_install("fastapi[
 
 
 with web_image.imports():
-    from fastapi import Header, HTTPException
+    from fastapi import HTTPException, Request
 
 
 @app.function(image=web_image, secrets=[modal.Secret.from_name("hangr-backend")])
 @modal.fastapi_endpoint(method="POST")
-def jobs(job: dict, authorization: str | None = Header(default=None)) -> dict:
+async def jobs(request: Request) -> dict:
     """Called by the `jobs` Edge Function with a shared token. Queues the job
     and returns at once; the worker writes the result to Supabase."""
     expected = f"Bearer {os.environ['HANGR_WORKER_TOKEN']}"
-    if not hmac.compare_digest((authorization or "").encode(), expected.encode()):
+    authorization = request.headers.get("authorization", "")
+    if not hmac.compare_digest(authorization.encode(), expected.encode()):
         raise HTTPException(status_code=401)
+    try:
+        job = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="bad json")
     # Same checks as hangr_pipeline.jobs.validate, which this light image can't import.
-    if job.get("type") not in ("process", "regenerate") or not isinstance(job.get("item_id"), str):
+    if (not isinstance(job, dict) or job.get("type") not in ("process", "regenerate")
+            or not isinstance(job.get("item_id"), str)):
         raise HTTPException(status_code=400, detail="bad job")
     if job.get("note") is not None and not isinstance(job["note"], str):
         raise HTTPException(status_code=400, detail="bad note")
-    Pipeline().run_job.spawn(job)
+    await Pipeline().run_job.spawn.aio(job)
     return {"queued": True}
 
 
