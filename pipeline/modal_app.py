@@ -48,12 +48,22 @@ image = (
 )
 
 
+# Set HANGR_GPU (e.g. "L4") when deploying to run background removal on a GPU
+# (about a second per image; Modal needs a payment method for GPUs). Without
+# it the worker runs on CPU, where BiRefNet takes 1-2 minutes per image.
+GPU = os.environ.get("HANGR_GPU") or None
+
+
 @app.cls(
     image=image,
-    gpu="L4",
+    gpu=GPU,
+    cpu=None if GPU else 2.0,
+    memory=None if GPU else 6144,
     secrets=[modal.Secret.from_name("hangr-ai-keys"), modal.Secret.from_name("hangr-backend")],
     scaledown_window=120,  # stay warm 2 min after the last item
-    timeout=300,
+    # Worst case on CPU: two enhance attempts, each with a cutout, plus the
+    # photo cutout for a flagged item.
+    timeout=300 if GPU else 900,
 )
 class Pipeline:
     @modal.enter()
