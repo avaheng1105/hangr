@@ -30,16 +30,26 @@ export type ItemAssets = {
   photoThumb?: ImageSourcePropType;
 };
 
+// Pipeline progress (items.status in Supabase). Sample items are 'ready'.
+export type ItemStatus = 'uploading' | 'processing' | 'ready' | 'failed';
+
 export type Item = {
   id: string;
   name: string;
+  status: ItemStatus;
   assets: ItemAssets;
   meta: ItemMeta;
   resolution?: ReviewResolution;
+  // Why the last run failed. A failed regenerate keeps the previous image.
+  error?: string;
 };
 
 export function needsReview(item: Item): boolean {
-  return item.meta.enhance.needs_review === true && item.resolution === undefined;
+  return (
+    item.status === 'ready' &&
+    item.meta.enhance.needs_review === true &&
+    item.resolution === undefined
+  );
 }
 
 // The judge's list of differences for the attempt that was kept.
@@ -62,12 +72,4 @@ export function displayThumb(item: Item): ImageSourcePropType {
   return item.resolution === 'photo' && item.assets.photoThumb
     ? item.assets.photoThumb
     : item.assets.thumb;
-}
-
-export function keepImage(item: Item): Item {
-  return { ...item, resolution: 'kept' };
-}
-
-export function choosePhoto(item: Item): Item {
-  return { ...item, resolution: 'photo' };
 }

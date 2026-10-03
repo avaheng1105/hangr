@@ -5,4 +5,5 @@ pillow>=11.0
 scipy>=1.13
 openai>=2.0
 google-genai>=1.30
+httpx>=0.27  # Supabase REST + Storage (store.py)
 rembg[gpu]>=2.0.60

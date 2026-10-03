@@ -7,16 +7,20 @@ only has to load them onto the GPU.
 One-time setup:
     pip install modal && modal setup
     modal secret create hangr-ai-keys OPENAI_API_KEY=... GEMINI_API_KEY=...
+    modal secret create hangr-backend SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
+        HANGR_WORKER_TOKEN=...   # the same token as the Edge Function's
 
 Try it on a photo (outputs land in ./out):
     modal run modal_app.py --photo samples/tshirt.jpg --enhance openai --category top
 
-Deploy (so the Supabase backend can call it later):
+Deploy (prints the `jobs` endpoint URL, which the Edge Function calls):
     modal deploy modal_app.py
 """
 
 from __future__ import annotations
 
+import hmac
+import os
 from dataclasses import replace
 from pathlib import Path
 
@@ -47,7 +51,7 @@ image = (
 @app.cls(
     image=image,
     gpu="L4",
-    secrets=[modal.Secret.from_name("hangr-ai-keys")],
+    secrets=[modal.Secret.from_name("hangr-ai-keys"), modal.Secret.from_name("hangr-backend")],
     scaledown_window=120,  # stay warm 2 min after the last item
     timeout=300,
 )
@@ -68,15 +72,37 @@ class Pipeline:
         return {"assets": result.assets, "meta": result.meta}
 
     @modal.method()
-    def regenerate(
-        self, original: bytes, previous_meta: dict, note: str = "", enhance_provider: str = "gemini"
-    ) -> dict:
-        """Re-run an item flagged for review (one enhance call, one judge call)."""
-        from hangr_pipeline import regenerate
+    def run_job(self, job: dict) -> None:
+        """A job from the backend: process a new photo or regenerate an item."""
+        from hangr_pipeline.jobs import run_job
+        from hangr_pipeline.store import SupabaseStore
 
-        cfg = replace(self.cfg, enhance_provider=enhance_provider)
-        result = regenerate(original, previous_meta, note, cfg)
-        return {"assets": result.assets, "meta": result.meta}
+        cfg = replace(self.cfg, enhance_provider="gemini")
+        run_job(job, cfg, SupabaseStore.from_env())
+
+
+web_image = modal.Image.debian_slim(python_version="3.11").pip_install("fastapi[standard]")
+
+
+with web_image.imports():
+    from fastapi import Header, HTTPException
+
+
+@app.function(image=web_image, secrets=[modal.Secret.from_name("hangr-backend")])
+@modal.fastapi_endpoint(method="POST")
+def jobs(job: dict, authorization: str | None = Header(default=None)) -> dict:
+    """Called by the `jobs` Edge Function with a shared token. Queues the job
+    and returns at once; the worker writes the result to Supabase."""
+    expected = f"Bearer {os.environ['HANGR_WORKER_TOKEN']}"
+    if not hmac.compare_digest((authorization or "").encode(), expected.encode()):
+        raise HTTPException(status_code=401)
+    # Same checks as hangr_pipeline.jobs.validate, which this light image can't import.
+    if job.get("type") not in ("process", "regenerate") or not isinstance(job.get("item_id"), str):
+        raise HTTPException(status_code=400, detail="bad job")
+    if job.get("note") is not None and not isinstance(job["note"], str):
+        raise HTTPException(status_code=400, detail="bad note")
+    Pipeline().run_job.spawn(job)
+    return {"queued": True}
 
 
 @app.local_entrypoint()

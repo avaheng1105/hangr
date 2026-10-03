@@ -12,27 +12,22 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import {
-  choosePhoto,
-  judgeIssues,
-  keepImage,
-  needsReview,
-  reviewMessage,
-  type Item,
-} from './items';
-import { NOTE_MAX_CHARS, regenerateItem } from './regenerate';
+import { NOTE_MAX_CHARS } from './closet';
+import { judgeIssues, reviewMessage, type Item, type ReviewResolution } from './items';
 
 type Props = {
   item: Item | null;
   onClose: () => void;
-  onChange: (item: Item) => void;
+  onReview: (item: Item, resolution: ReviewResolution) => Promise<void>;
+  // Starts a regenerate run; the new image shows up in the closet when done.
+  onRegenerate: (item: Item, note: string) => Promise<void>;
 };
 
 // Shown when the user taps an item flagged for review: their photo next to
 // the generated image, with three ways out. Keep clears the flag, Use my
 // photo swaps in the original photo with its background removed, and
 // Regenerate runs the image model again with an optional note.
-export function ReviewSheet({ item, onClose, onChange }: Props) {
+export function ReviewSheet({ item, onClose, onReview, onRegenerate }: Props) {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,23 +38,13 @@ export function ReviewSheet({ item, onClose, onChange }: Props) {
     onClose();
   };
 
-  const resolve = (next: Item) => {
-    onChange(next);
-    close();
-  };
-
-  const regenerate = async () => {
-    if (!item) return;
+  // Runs one of the three actions, closing the sheet if it worked.
+  const run = async (action: () => Promise<void>) => {
     setBusy(true);
     setError(null);
     try {
-      const next = await regenerateItem(item, note.trim());
-      if (needsReview(next)) {
-        onChange(next); // flagged again: stay here and show the new image
-        setNote('');
-      } else {
-        resolve(next);
-      }
+      await action();
+      close();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -80,6 +65,9 @@ export function ReviewSheet({ item, onClose, onChange }: Props) {
             </Pressable>
           </View>
           <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+            {item.error && (
+              <Text style={styles.error}>Your last regenerate didn&apos;t work: {item.error}</Text>
+            )}
             <Text style={styles.message}>{reviewMessage(item.meta.enhance.review_reason)}</Text>
 
             <View style={styles.compare}>
@@ -98,9 +86,18 @@ export function ReviewSheet({ item, onClose, onChange }: Props) {
               </View>
             )}
 
-            <Button label="Keep this image" onPress={() => resolve(keepImage(item))} primary />
+            <Button
+              label="Keep this image"
+              onPress={() => run(() => onReview(item, 'kept'))}
+              disabled={busy}
+              primary
+            />
             {item.assets.photoCutout && (
-              <Button label="Use my photo instead" onPress={() => resolve(choosePhoto(item))} />
+              <Button
+                label="Use my photo instead"
+                onPress={() => run(() => onReview(item, 'photo'))}
+                disabled={busy}
+              />
             )}
 
             <View style={styles.regenerate}>
@@ -115,8 +112,8 @@ export function ReviewSheet({ item, onClose, onChange }: Props) {
                 editable={!busy}
               />
               <Button
-                label={busy ? 'Regenerating…' : 'Regenerate'}
-                onPress={regenerate}
+                label="Regenerate"
+                onPress={() => run(() => onRegenerate(item, note.trim()))}
                 disabled={busy}
               />
               {busy && <ActivityIndicator style={styles.spinner} />}

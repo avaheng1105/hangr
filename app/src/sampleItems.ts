@@ -9,6 +9,7 @@ import type { Item } from './items';
 export const SAMPLE_ITEMS: Item[] = [
   {
     id: 'tee',
+    status: 'ready',
     name: 'Puppy tee',
     assets: {
       original: require('../assets/sample/tee/original.webp'),
@@ -35,18 +36,21 @@ export const SAMPLE_ITEMS: Item[] = [
   },
   {
     id: 'jeans',
+    status: 'ready',
     name: 'Jeans',
     assets: { thumb: require('../assets/sample/jeans/thumb.webp') },
     meta: { enhance: { category: 'bottom' } },
   },
   {
     id: 'shorts',
+    status: 'ready',
     name: 'Shorts',
     assets: { thumb: require('../assets/sample/shorts/thumb.webp') },
     meta: { enhance: { category: 'bottom' } },
   },
   {
     id: 'skirt',
+    status: 'ready',
     name: 'Skirt',
     assets: { thumb: require('../assets/sample/skirt/thumb.webp') },
     meta: { enhance: { category: 'skirt' } },
