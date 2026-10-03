@@ -29,37 +29,25 @@ Users are limited to `HANGR_DAILY_JOB_LIMIT` jobs a day (default 30).
 
 ## Deploy
 
-Needs a Supabase project and a Modal account. `SUPABASE_ACCESS_TOKEN`,
-`MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` in the environment.
+The live project is `kucodzbbcumwtravnuft` (Tokyo). Its URL and anon key are
+in `app/src/supabase.ts`; the anon key is public by design.
 
-```bash
-REF=<project ref>
-TOKEN=$(openssl rand -hex 32)          # shared by the Edge Function and the worker
+- **Database:** apply new files in `migrations/` with `supabase db push`, or,
+  where Postgres connections are blocked (as in Claude's cloud environment),
+  run each file through the Management API's `database/query` endpoint and
+  add its version to `supabase_migrations.schema_migrations`.
+- **Edge Function:** `supabase functions deploy jobs --project-ref <ref> --use-api`.
+- **Worker:** the `Deploy worker` GitHub Action (`.github/workflows/deploy-worker.yml`)
+  deploys `pipeline/modal_app.py` to Modal, then sets the function's
+  `HANGR_WORKER_URL` and `HANGR_WORKER_TOKEN`. It needs the repository
+  secrets listed in the workflow and runs on pipeline changes or by hand.
+- **Guest sign-in** is turned on in the project (Authentication > Sign In /
+  Providers > anonymous). Don't use `supabase config push`: it would also
+  push `config.toml`'s local settings, such as `site_url`.
 
-# 1. Database, Storage and the Edge Function
-supabase link --project-ref $REF
-supabase db push
-supabase functions deploy jobs
-
-# 2. Allow anonymous sign-ins (Dashboard: Authentication > Sign In / Providers).
-#    Don't use `supabase config push`: it would also push config.toml's local
-#    settings, such as site_url.
-curl -X PATCH "https://api.supabase.com/v1/projects/$REF/config/auth" \
-  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
-  -d '{"external_anonymous_users_enabled": true}'
-
-# 3. Worker (from pipeline/). `modal deploy` prints the jobs endpoint URL.
-supabase projects api-keys --project-ref $REF          # service_role key for the worker
-modal secret create hangr-ai-keys GEMINI_API_KEY=...
-modal secret create hangr-backend SUPABASE_URL=https://$REF.supabase.co \
-  SUPABASE_SERVICE_ROLE_KEY=... HANGR_WORKER_TOKEN=$TOKEN
-modal deploy modal_app.py
-
-# 4. Point the Edge Function at the worker
-supabase secrets set HANGR_WORKER_URL=<jobs endpoint URL> HANGR_WORKER_TOKEN=$TOKEN
-
-# 5. App: app/.env.local (see app/.env.example) with the project URL and anon key
-```
+Anyone who has the app can create guest accounts (Supabase allows 30 per
+hour per IP), and each account gets `HANGR_DAILY_JOB_LIMIT` jobs a day. Swap
+guests for real sign-in before sharing the app widely.
 
 ## Test
 

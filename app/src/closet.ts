@@ -57,6 +57,7 @@ const ASSET_KEYS: Record<string, keyof ItemAssets> = {
 };
 
 const SIGNED_URL_SECONDS = 60 * 60;
+const STALE_UPLOAD_MS = 10 * 60 * 1000;
 
 function itemName(category: string): string {
   return category === 'auto' ? 'Item' : category[0].toUpperCase() + category.slice(1);
@@ -95,6 +96,13 @@ function liveCloset(client: NonNullable<typeof supabase>): Closet {
 
     async load() {
       await signIn();
+      // An add that lost its connection mid-upload leaves an item that never
+      // started processing; clear those out rather than showing them forever.
+      await client
+        .from('items')
+        .delete()
+        .eq('status', 'uploading')
+        .lt('created_at', new Date(Date.now() - STALE_UPLOAD_MS).toISOString());
       const { data, error } = await client
         .from('items')
         .select('id, category, status, meta, review_resolution, error, item_assets(kind, path)')
