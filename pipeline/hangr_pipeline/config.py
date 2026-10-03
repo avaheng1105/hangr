@@ -46,6 +46,11 @@ class PipelineConfig:
         default_factory=lambda: _env("FIDELITY_METHOD", "auto")  # type: ignore[return-value]
     )
     judge_model: str = field(default_factory=lambda: _env("JUDGE_MODEL", "gemini-flash-latest"))
+    # Extra tries of the judge call on transient errors (rate limit, 5xx,
+    # timeout), waiting judge_retry_delay seconds, then twice that, ... If it
+    # still fails, the image is kept but flagged needs_review, never accepted.
+    judge_retries: int = 2
+    judge_retry_delay: float = 2.0
     # Minimum judge score (1-10) to accept the enhanced image.
     fidelity_min_score: int = 7
     # If no attempt reaches fidelity_min_score, the best attempt is still used

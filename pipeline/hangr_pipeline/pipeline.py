@@ -85,6 +85,8 @@ def process(photo: bytes | Image.Image, cfg: PipelineConfig | None = None) -> Pi
         feedback: list[str] | None = None
         # Best judged attempt so far: (score, enhanced image, its cutout).
         best: tuple[int, Image.Image, tuple[np.ndarray, np.ndarray]] | None = None
+        # An attempt the judge couldn't check (judge call failed).
+        unchecked: tuple[Image.Image, tuple[np.ndarray, np.ndarray]] | None = None
         for _ in range(1 + cfg.enhance_retries):
             attempt: dict = {}
             enhance_meta["attempts"].append(attempt)
@@ -101,11 +103,12 @@ def process(photo: bytes | Image.Image, cfg: PipelineConfig | None = None) -> Pi
                 try:
                     verdict = timed("judge", fidelity.judge_gemini, original, enhanced, cfg)
                 except Exception as exc:
-                    # Don't throw away a possibly good image over a failed check.
-                    log.warning("fidelity judge failed, accepting the image: %s", exc)
+                    # The judge already retried transient errors. Keep the
+                    # image for the user to review rather than accepting it
+                    # unchecked, and stop: another enhance can't be judged either.
+                    log.warning("fidelity judge failed, flagging for review: %s", exc)
                     attempt["judge_error"] = str(exc)
-                    chosen = e_cut
-                    result.assets["enhanced.webp"] = to_webp_bytes(enhanced)
+                    unchecked = (enhanced, e_cut)
                     break
                 attempt["score"] = verdict.score
                 attempt["issues"] = verdict.issues
@@ -129,6 +132,14 @@ def process(photo: bytes | Image.Image, cfg: PipelineConfig | None = None) -> Pi
             chosen = best[2]
             result.assets["enhanced.webp"] = to_webp_bytes(best[1])
             enhance_meta["needs_review"] = True
+            enhance_meta["review_reason"] = "low_score"
+        elif chosen is None and unchecked is not None:
+            # Unknown fidelity, so never accepted outright: shown flagged,
+            # the same way as a near miss.
+            chosen = unchecked[1]
+            result.assets["enhanced.webp"] = to_webp_bytes(unchecked[0])
+            enhance_meta["needs_review"] = True
+            enhance_meta["review_reason"] = "judge_failed"
         enhance_meta["used"] = chosen is not None
         enhance_meta["background"] = pick_background(original)
 

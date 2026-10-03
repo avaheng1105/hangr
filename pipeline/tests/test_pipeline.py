@@ -143,21 +143,61 @@ def test_near_miss_keeps_best_attempt_for_review(photo, monkeypatch):
 
     meta = result.meta["enhance"]
     assert meta["used"] is True and meta["needs_review"] is True
+    assert meta["review_reason"] == "low_score"
     # The kept image is the first (higher-scoring) attempt.
     kept = Image.open(io.BytesIO(result.assets["enhanced.webp"])).convert("RGB")
     r, g, b = kept.getpixel((2, 2))
     assert r > 200 and b < 60
 
 
-def test_judge_error_keeps_the_enhanced_image(photo, monkeypatch):
-    def judge_down(o, e, cfg):
-        raise RuntimeError("judge down")
+def test_judge_error_flags_the_image_for_review(photo, monkeypatch):
+    enhance_calls = []
 
-    monkeypatch.setattr(pipeline, "enhance", lambda image, cfg, feedback=None: image.copy())
+    def fake_enhance(image, cfg, feedback=None):
+        enhance_calls.append(feedback)
+        return image.copy()
+
+    def judge_down(o, e, cfg):
+        raise RuntimeError("503 UNAVAILABLE")
+
+    monkeypatch.setattr(pipeline, "enhance", fake_enhance)
     monkeypatch.setattr(fidelity, "judge_gemini", judge_down)
     result = process(photo, no_ml(enhance_provider="gemini", output_size=256))
-    assert result.meta["enhance"]["used"] is True
-    assert result.meta["enhance"]["attempts"][0]["judge_error"] == "judge down"
+
+    meta = result.meta["enhance"]
+    # Kept for the user to look at, never accepted unchecked.
+    assert meta["used"] is True and meta["needs_review"] is True
+    assert meta["review_reason"] == "judge_failed"
+    assert meta["attempts"][0]["judge_error"] == "503 UNAVAILABLE"
+    assert "enhanced.webp" in result.assets
+    # No second enhance call that couldn't be judged either.
+    assert len(enhance_calls) == 1
+
+
+def test_judge_error_after_a_near_miss_keeps_the_judged_attempt(photo, monkeypatch):
+    shades = iter([(255, 0, 0), (0, 0, 255)])
+
+    def fake_enhance(image, cfg, feedback=None):
+        tinted = image.copy()
+        tinted.paste(next(shades), (0, 0, 8, 8))
+        return tinted
+
+    verdicts = iter([Verdict(6, ["a"])])
+
+    def judge(o, e, cfg):
+        for verdict in verdicts:
+            return verdict
+        raise RuntimeError("judge down")
+
+    monkeypatch.setattr(pipeline, "enhance", fake_enhance)
+    monkeypatch.setattr(fidelity, "judge_gemini", judge)
+    result = process(photo, no_ml(enhance_provider="gemini", output_size=256))
+
+    meta = result.meta["enhance"]
+    assert meta["needs_review"] is True and meta["review_reason"] == "low_score"
+    kept = Image.open(io.BytesIO(result.assets["enhanced.webp"])).convert("RGB")
+    r, g, b = kept.getpixel((2, 2))
+    assert r > 200 and b < 60
 
 
 def test_colorkey_leaves_no_background_rim():
