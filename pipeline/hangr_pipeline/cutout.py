@@ -93,7 +93,32 @@ def alpha_colorkey(image: Image.Image) -> np.ndarray:
     solid = ndimage.binary_erosion(solid, iterations=2)
 
     alpha = from_float(solid.astype(np.float32)).resize((w, h), Image.Resampling.BILINEAR)
-    return ndimage.gaussian_filter(to_float(alpha), max(0.7, 0.5 / scale))
+    alpha = ndimage.gaussian_filter(to_float(alpha), max(0.7, 0.5 / scale))
+    return _trim_background_fringe(rgb, alpha, small, sh, border)
+
+
+def _trim_background_fringe(
+    rgb: np.ndarray, alpha: np.ndarray, small: np.ndarray, sh: int, border: np.ndarray
+) -> np.ndarray:
+    """Fade out background-coloured pixels along the outline.
+
+    The flood fill stops a few pixels short of the true edge, leaving a thin
+    rim of background inside the mask. Only a band along the outline is
+    touched, so garment colours close to the background (e.g. white fabric
+    on a light grey background) are kept in the interior.
+    """
+    bg = np.median(small[border], axis=0)
+    dist = np.linalg.norm(rgb - bg, axis=2)
+    noise = float(np.percentile(np.linalg.norm(small[border] - bg, axis=1), 95))
+    lo = max(0.02, 1.5 * noise)
+    t = np.clip((dist - lo) / 0.06, 0.0, 1.0)
+    colour_alpha = t * t * (3.0 - 2.0 * t)
+
+    band_width = max(2, round(8 * alpha.shape[0] / max(sh, 1) / 2))
+    inside = alpha > 0.5
+    band = inside & ~ndimage.binary_erosion(inside, iterations=band_width)
+    band |= (alpha > 0) & ~inside
+    return np.where(band, np.minimum(alpha, colour_alpha), alpha).astype(np.float32)
 
 
 def frame(

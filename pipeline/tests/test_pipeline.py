@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PIL import Image
+from PIL import Image, ImageFilter
 
 from hangr_pipeline import PipelineConfig, pipeline, process
 from hangr_pipeline.cutout import alpha_colorkey, frame
@@ -97,3 +97,18 @@ def test_falls_back_to_original_when_enhance_errors(photo, monkeypatch):
     assert result.meta["enhance"]["used"] is False
     assert result.meta["enhance"]["attempts"][0]["error"] == "provider down"
     assert "cutout.png" in result.assets
+
+
+def test_colorkey_leaves_no_background_rim():
+    # White garment on light grey with a soft edge, like an image-edit result.
+    size = 400
+    canvas = Image.new("RGB", (size, size), (229, 229, 229))
+    canvas.paste((255, 255, 255), (100, 80, 300, 320))
+    photo = canvas.filter(ImageFilter.GaussianBlur(1.5))
+    rgb = to_float(photo)
+    alpha = alpha_colorkey(photo)
+    background_coloured = np.linalg.norm(rgb - 229 / 255, axis=2) < 0.01
+    # Pixels that are pure background colour must be transparent...
+    assert alpha[background_coloured].max() < 0.1
+    # ...while the white interior stays solid.
+    assert alpha[110:310, 110:290].min() > 0.99
