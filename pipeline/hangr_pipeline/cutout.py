@@ -100,25 +100,47 @@ def alpha_colorkey(image: Image.Image) -> np.ndarray:
 def _trim_background_fringe(
     rgb: np.ndarray, alpha: np.ndarray, small: np.ndarray, sh: int, border: np.ndarray
 ) -> np.ndarray:
-    """Fade out background-coloured pixels along the outline.
+    """Recompute the alpha along the outline by unmixing garment and background.
 
-    The flood fill stops a few pixels short of the true edge, leaving a thin
-    rim of background inside the mask. Only a band along the outline is
-    touched, so garment colours close to the background (e.g. white fabric
-    on a light grey background) are kept in the interior.
+    The flood fill stops a few pixels short of the true edge, so the mask
+    includes a thin rim of pixels that are partly or wholly background. In a
+    band along the outline, each pixel is treated as a blend of the plain
+    background colour and the nearest interior garment colour, and its alpha
+    becomes the garment's share of that blend. Where the garment is the same
+    colour as the background the blend can't be told apart, so those pixels
+    fall back to fading out by distance from the background colour. The
+    interior is never touched, so white fabric on a light background stays
+    solid.
     """
     bg = np.median(small[border], axis=0)
+    # Edges are soft over a few pixels, so the pure garment colour is sampled
+    # well inside the outline.
+    depth = max(4, round(8 * alpha.shape[0] / max(sh, 1)))
+    inside = alpha > 0.5
+    core = ndimage.binary_erosion(inside, iterations=depth)
+    band = (alpha > 0) & ~core
+    if not core.any() or not band.any():
+        return alpha
+
+    # Nearest interior (pure garment) colour for every pixel.
+    to_core, (iy, ix) = ndimage.distance_transform_edt(~core, return_indices=True)
+    garment = rgb[iy, ix]
+    towards_garment = garment - bg
+    spread = np.sum(towards_garment**2, axis=2)
+    share = np.sum((rgb - bg) * towards_garment, axis=2) / np.maximum(spread, 1e-6)
+    unmixed = np.clip(share, 0.0, 1.0)
+
     dist = np.linalg.norm(rgb - bg, axis=2)
     noise = float(np.percentile(np.linalg.norm(small[border] - bg, axis=1), 95))
-    lo = max(0.02, 1.5 * noise)
-    t = np.clip((dist - lo) / 0.06, 0.0, 1.0)
-    colour_alpha = t * t * (3.0 - 2.0 * t)
+    t = np.clip((dist - max(0.02, 1.5 * noise)) / 0.06, 0.0, 1.0)
+    faded = t * t * (3.0 - 2.0 * t)
 
-    band_width = max(2, round(8 * alpha.shape[0] / max(sh, 1) / 2))
-    inside = alpha > 0.5
-    band = inside & ~ndimage.binary_erosion(inside, iterations=band_width)
-    band |= (alpha > 0) & ~inside
-    return np.where(band, np.minimum(alpha, colour_alpha), alpha).astype(np.float32)
+    # Unmix only where the garment colour clearly differs from the background
+    # and the sampled interior is nearby; thin parts without an interior
+    # (straps, drawstrings) keep the plain fade.
+    reliable = (spread > 0.15**2) & (to_core <= 1.5 * depth)
+    edge_alpha = np.where(reliable, unmixed, faded)
+    return np.where(band, np.minimum(alpha, edge_alpha), alpha).astype(np.float32)
 
 
 def frame(
@@ -155,12 +177,15 @@ def frame(
 
 
 def bleed_edges(rgb: np.ndarray, alpha: np.ndarray) -> np.ndarray:
-    """Copy the nearest garment colour into transparent pixels.
+    """Copy the nearest fully opaque garment colour into every other pixel.
 
-    Texture filtering blends neighbouring pixels; without this, the
-    (black) colour of transparent pixels leaks in as a dark outline.
+    Soft edge pixels are a blend of garment and background colour, which
+    shows as a thin outline (dark on a dark background). And when an image
+    is scaled, the colour of transparent pixels leaks into the edge.
+    Replacing both with the nearest solid garment colour removes the rim
+    while the alpha keeps the edge soft.
     """
-    solid = alpha > 0.5
+    solid = alpha >= 0.98
     if not solid.any():
         return rgb
     _, (iy, ix) = ndimage.distance_transform_edt(~solid, return_indices=True)

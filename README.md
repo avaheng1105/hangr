@@ -18,9 +18,11 @@ screens we're replicating.
    Clothes are shown on an invisible (ghost) mannequin with body volume; shoes,
    bags and jewellery as product photos. The prompt depends on the item's
    category.
-2. **Fidelity check:** the garment's colours are compared before and after.
-   If the model changed the item, it retries once and then falls back to the
-   original photo.
+2. **Fidelity check:** a Gemini vision model compares the photo with the
+   product shot (colours, print, text, hardware, cut). If the model changed
+   the item, it retries once with the list of differences to fix; a near miss
+   is kept but flagged for review, anything worse falls back to the original
+   photo.
 3. **Cutout:** background removal, cropped and centred on a square, plus a
    thumbnail for the grid.
 

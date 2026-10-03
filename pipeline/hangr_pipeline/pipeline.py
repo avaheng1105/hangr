@@ -2,7 +2,7 @@
 
     original photo
       -> enhance (image-edit model)          optional, falls back to original
-      -> fidelity check (colour histogram)   retry, then fall back
+      -> fidelity check (vision judge or colour)  retry with feedback, then fall back
       -> background removal + framing
       -> assets: original, enhanced, cutout, thumb + metadata
 """
@@ -18,7 +18,7 @@ from PIL import Image
 
 from . import cutout, fidelity
 from .config import PipelineConfig
-from .enhance import enhance
+from .enhance import enhance, pick_background
 from .imageio import from_bytes, from_float, normalize, to_png_bytes, to_webp_bytes
 from .prompts import ENHANCE_PROMPT_VERSION, build_prompt
 
@@ -30,6 +30,12 @@ class PipelineResult:
     # File name -> encoded bytes. Names match the `kind` column of item_assets.
     assets: dict[str, bytes] = field(default_factory=dict)
     meta: dict = field(default_factory=dict)
+
+
+def _fidelity_method(cfg: PipelineConfig) -> str:
+    if cfg.fidelity_method == "auto":
+        return "gemini" if cfg.enhance_provider == "gemini" else "colour"
+    return cfg.fidelity_method
 
 
 def load_models(cfg: PipelineConfig) -> None:
@@ -55,34 +61,78 @@ def process(photo: bytes | Image.Image, cfg: PipelineConfig | None = None) -> Pi
     result = PipelineResult()
     result.assets["original.webp"] = to_webp_bytes(original)
 
-    orig_alpha = timed("cutout", cutout.alpha_mask, original, cfg)
-    rgb, alpha = timed("frame", cutout.frame, original, orig_alpha, cfg)
+    # The original photo's cutout is only needed for the colour check, or as
+    # the fallback when no enhanced image is accepted.
+    original_cut: tuple[np.ndarray, np.ndarray] | None = None
 
+    def cut_original() -> tuple[np.ndarray, np.ndarray]:
+        nonlocal original_cut
+        if original_cut is None:
+            orig_alpha = timed("cutout", cutout.alpha_mask, original, cfg)
+            original_cut = timed("frame", cutout.frame, original, orig_alpha, cfg)
+        return original_cut
+
+    chosen: tuple[np.ndarray, np.ndarray] | None = None
     enhance_meta: dict = {"provider": cfg.enhance_provider, "used": False}
     if cfg.enhance_provider != "none":
-        enhance_meta["prompt_version"] = ENHANCE_PROMPT_VERSION
-        enhance_meta["category"] = cfg.category
-        enhance_meta["attempts"] = []
+        method = _fidelity_method(cfg)
+        enhance_meta.update(
+            prompt_version=ENHANCE_PROMPT_VERSION,
+            category=cfg.category,
+            fidelity_method=method,
+            attempts=[],
+        )
+        feedback: list[str] | None = None
+        # Best judged attempt so far: (score, enhanced image, its cutout).
+        best: tuple[int, Image.Image, tuple[np.ndarray, np.ndarray]] | None = None
         for _ in range(1 + cfg.enhance_retries):
             attempt: dict = {}
             enhance_meta["attempts"].append(attempt)
             try:
-                enhanced = normalize(timed("enhance", enhance, original, cfg), cfg.max_input_size)
+                raw = timed("enhance", enhance, original, cfg, feedback)
+                enhanced = normalize(raw, cfg.max_input_size)
                 e_alpha = timed("cutout", cutout.alpha_mask, enhanced, cfg)
-                e_rgb, e_alpha = timed("frame", cutout.frame, enhanced, e_alpha, cfg)
+                e_cut = timed("frame", cutout.frame, enhanced, e_alpha, cfg)
             except Exception as exc:  # network, provider refusal, empty result...
                 log.warning("enhance attempt failed: %s", exc)
                 attempt["error"] = str(exc)
                 continue
-            score = fidelity.similarity(rgb, alpha, e_rgb, e_alpha)
-            attempt["fidelity"] = round(score, 3)
+            if method == "gemini":
+                try:
+                    verdict = timed("judge", fidelity.judge_gemini, original, enhanced, cfg)
+                except Exception as exc:
+                    # Don't throw away a possibly good image over a failed check.
+                    log.warning("fidelity judge failed, accepting the image: %s", exc)
+                    attempt["judge_error"] = str(exc)
+                    chosen = e_cut
+                    result.assets["enhanced.webp"] = to_webp_bytes(enhanced)
+                    break
+                attempt["score"] = verdict.score
+                attempt["issues"] = verdict.issues
+                passed = verdict.score >= cfg.fidelity_min_score
+                feedback = verdict.issues or None
+                if best is None or verdict.score > best[0]:
+                    best = (verdict.score, enhanced, e_cut)
+            else:
+                score = fidelity.similarity(*cut_original(), *e_cut)
+                attempt["fidelity"] = round(score, 3)
+                passed = score >= cfg.fidelity_threshold
             result.assets["enhanced.webp"] = to_webp_bytes(enhanced)
-            if score >= cfg.fidelity_threshold:
-                rgb, alpha = e_rgb, e_alpha
-                enhance_meta["used"] = True
+            if passed:
+                chosen = e_cut
                 break
-            log.warning("enhanced image failed fidelity check (%.2f)", score)
+            log.warning("enhanced image failed the fidelity check: %s", attempt)
 
+        if chosen is None and best is not None and best[0] >= cfg.fidelity_review_score:
+            # Close but not quite: better than a raw photo, but let the user
+            # look at it (the app can offer "retry" / "use my photo").
+            chosen = best[2]
+            result.assets["enhanced.webp"] = to_webp_bytes(best[1])
+            enhance_meta["needs_review"] = True
+        enhance_meta["used"] = chosen is not None
+        enhance_meta["background"] = pick_background(original)
+
+    rgb, alpha = chosen if chosen is not None else cut_original()
     cutout_img = from_float(np.dstack([rgb, alpha]))
     result.assets["cutout.png"] = to_png_bytes(cutout_img)
     thumb = cutout_img.resize((cfg.thumb_size, cfg.thumb_size), Image.Resampling.LANCZOS)

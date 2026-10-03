@@ -85,3 +85,40 @@ def test_gemini_generate_content(monkeypatch):
     assert out.getpixel((0, 0))[:3] == (10, 200, 10)
     assert calls[0]["model"] == "test-gemini"
     assert calls[0]["config"].response_modalities == ["IMAGE"]
+
+
+def test_gemini_judge_parses_structured_verdict(monkeypatch):
+    from google import genai
+
+    from hangr_pipeline.fidelity import judge_gemini
+
+    calls = []
+
+    class FakeModels:
+        def generate_content(self, **kwargs):
+            calls.append(kwargs)
+            schema = kwargs["config"].response_schema
+            return SimpleNamespace(parsed=schema(score=12, issues=["legs should flare"]), text="")
+
+    class FakeClient:
+        def __init__(self):
+            self.models = FakeModels()
+
+    monkeypatch.setattr(genai, "Client", FakeClient)
+    verdict = judge_gemini(INPUT, OUTPUT, PipelineConfig(judge_model="test-judge"))
+    assert verdict.score == 10  # clamped to 1-10
+    assert verdict.issues == ["legs should flare"]
+    assert calls[0]["model"] == "test-judge"
+    assert len(calls[0]["contents"]) == 3  # original, enhanced, instructions
+
+
+def test_background_contrasts_with_the_item():
+    from hangr_pipeline.enhance import pick_background
+    from hangr_pipeline.prompts import DARK_BACKGROUND, LIGHT_BACKGROUND
+
+    white_shirt = Image.new("RGB", (300, 300), (190, 180, 160))  # beige floor
+    white_shirt.paste((250, 250, 250), (60, 60, 240, 240))
+    navy_jeans = Image.new("RGB", (300, 300), (190, 180, 160))
+    navy_jeans.paste((40, 60, 110), (60, 60, 240, 240))
+    assert pick_background(white_shirt) == DARK_BACKGROUND
+    assert pick_background(navy_jeans) == LIGHT_BACKGROUND

@@ -6,7 +6,8 @@ import numpy as np
 import pytest
 from PIL import Image, ImageFilter
 
-from hangr_pipeline import PipelineConfig, pipeline, process
+from hangr_pipeline import PipelineConfig, fidelity, pipeline, process
+from hangr_pipeline.fidelity import Verdict
 from hangr_pipeline.cutout import alpha_colorkey, frame
 from hangr_pipeline.fidelity import similarity
 from hangr_pipeline.imageio import to_float
@@ -69,7 +70,7 @@ def test_process_without_ml(photo):
 
 
 def test_enhanced_image_is_used_when_faithful(photo, monkeypatch):
-    monkeypatch.setattr(pipeline, "enhance", lambda image, cfg: image.copy())
+    monkeypatch.setattr(pipeline, "enhance", lambda image, cfg, feedback=None: image.copy())
     result = process(photo, no_ml(enhance_provider="openai", output_size=256))
     assert result.meta["enhance"]["used"] is True
     assert len(result.meta["enhance"]["attempts"]) == 1
@@ -77,11 +78,12 @@ def test_enhanced_image_is_used_when_faithful(photo, monkeypatch):
 
 
 def test_falls_back_to_original_when_enhance_changes_colours(photo, monkeypatch):
-    def recolour(image, cfg):
+    def recolour(image, cfg, feedback=None):
         return Image.fromarray(np.asarray(image)[..., [2, 0, 1]])
 
     monkeypatch.setattr(pipeline, "enhance", recolour)
-    result = process(photo, no_ml(enhance_provider="gemini", output_size=256))
+    cfg = no_ml(enhance_provider="gemini", fidelity_method="colour", output_size=256)
+    result = process(photo, cfg)
     meta = result.meta["enhance"]
     assert meta["used"] is False
     assert len(meta["attempts"]) == 2  # first try + one retry
@@ -89,7 +91,7 @@ def test_falls_back_to_original_when_enhance_changes_colours(photo, monkeypatch)
 
 
 def test_falls_back_to_original_when_enhance_errors(photo, monkeypatch):
-    def boom(image, cfg):
+    def boom(image, cfg, feedback=None):
         raise RuntimeError("provider down")
 
     monkeypatch.setattr(pipeline, "enhance", boom)
@@ -97,6 +99,65 @@ def test_falls_back_to_original_when_enhance_errors(photo, monkeypatch):
     assert result.meta["enhance"]["used"] is False
     assert result.meta["enhance"]["attempts"][0]["error"] == "provider down"
     assert "cutout.png" in result.assets
+
+
+def test_judge_feedback_is_passed_to_the_retry(photo, monkeypatch):
+    calls = []
+
+    def fake_enhance(image, cfg, feedback=None):
+        calls.append(feedback)
+        return image.copy()
+
+    verdicts = iter([Verdict(4, ["the legs should flare out"]), Verdict(9, [])])
+    monkeypatch.setattr(pipeline, "enhance", fake_enhance)
+    monkeypatch.setattr(fidelity, "judge_gemini", lambda o, e, cfg: next(verdicts))
+    result = process(photo, no_ml(enhance_provider="gemini", output_size=256))
+
+    meta = result.meta["enhance"]
+    assert meta["fidelity_method"] == "gemini" and meta["used"] is True
+    assert calls == [None, ["the legs should flare out"]]
+    assert [a["score"] for a in meta["attempts"]] == [4, 9]
+
+
+def test_judge_rejections_fall_back_to_original(photo, monkeypatch):
+    monkeypatch.setattr(pipeline, "enhance", lambda image, cfg, feedback=None: image.copy())
+    monkeypatch.setattr(fidelity, "judge_gemini", lambda o, e, cfg: Verdict(3, ["wrong print"]))
+    result = process(photo, no_ml(enhance_provider="gemini", output_size=256))
+    assert result.meta["enhance"]["used"] is False
+    assert "needs_review" not in result.meta["enhance"]
+    assert len(result.meta["enhance"]["attempts"]) == 2
+
+
+def test_near_miss_keeps_best_attempt_for_review(photo, monkeypatch):
+    shades = iter([(255, 0, 0), (0, 0, 255)])
+
+    def fake_enhance(image, cfg, feedback=None):
+        tinted = image.copy()
+        tinted.paste(next(shades), (0, 0, 8, 8))  # mark which attempt this is
+        return tinted
+
+    verdicts = iter([Verdict(6, ["a"]), Verdict(5, ["b"])])
+    monkeypatch.setattr(pipeline, "enhance", fake_enhance)
+    monkeypatch.setattr(fidelity, "judge_gemini", lambda o, e, cfg: next(verdicts))
+    result = process(photo, no_ml(enhance_provider="gemini", output_size=256))
+
+    meta = result.meta["enhance"]
+    assert meta["used"] is True and meta["needs_review"] is True
+    # The kept image is the first (higher-scoring) attempt.
+    kept = Image.open(io.BytesIO(result.assets["enhanced.webp"])).convert("RGB")
+    r, g, b = kept.getpixel((2, 2))
+    assert r > 200 and b < 60
+
+
+def test_judge_error_keeps_the_enhanced_image(photo, monkeypatch):
+    def judge_down(o, e, cfg):
+        raise RuntimeError("judge down")
+
+    monkeypatch.setattr(pipeline, "enhance", lambda image, cfg, feedback=None: image.copy())
+    monkeypatch.setattr(fidelity, "judge_gemini", judge_down)
+    result = process(photo, no_ml(enhance_provider="gemini", output_size=256))
+    assert result.meta["enhance"]["used"] is True
+    assert result.meta["enhance"]["attempts"][0]["judge_error"] == "judge down"
 
 
 def test_colorkey_leaves_no_background_rim():
@@ -112,3 +173,14 @@ def test_colorkey_leaves_no_background_rim():
     assert alpha[background_coloured].max() < 0.1
     # ...while the white interior stays solid.
     assert alpha[110:310, 110:290].min() > 0.99
+
+
+def test_soft_edges_take_the_garment_colour_not_the_background():
+    # White square on a dark background, with a soft edge.
+    canvas = Image.new("RGB", (400, 400), (58, 58, 58))
+    canvas.paste((255, 255, 255), (100, 100, 300, 300))
+    photo = canvas.filter(ImageFilter.GaussianBlur(1.5))
+    rgb, alpha = frame(photo, alpha_colorkey(photo), no_ml(output_size=256))
+    edge = (alpha > 0.05) & (alpha < 0.98)
+    assert edge.any()
+    assert rgb[edge].min() > 0.9  # white, not grey or dark

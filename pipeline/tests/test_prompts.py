@@ -2,7 +2,7 @@ import pytest
 from PIL import Image
 
 from hangr_pipeline import PipelineConfig, process
-from hangr_pipeline.prompts import CATEGORIES, build_prompt
+from hangr_pipeline.prompts import CATEGORIES, DARK_BACKGROUND, build_prompt
 
 
 @pytest.mark.parametrize("category", CATEGORIES)
@@ -10,9 +10,10 @@ def test_every_category_keeps_the_item_unchanged(category):
     prompt = build_prompt(category)
     assert "Keep the item EXACTLY the same" in prompt
     assert "#EEEEEE" in prompt
+    assert "#3A3A3A" in build_prompt(category, background=DARK_BACKGROUND)
 
 
-@pytest.mark.parametrize("category", ["top", "outerwear", "dress", "bottom"])
+@pytest.mark.parametrize("category", ["top", "outerwear", "dress", "bottom", "skirt"])
 def test_clothes_use_ghost_mannequin(category):
     assert "ghost mannequin" in build_prompt(category)
 
@@ -36,3 +37,10 @@ def test_unknown_category_fails_fast():
                          category="hat")
     with pytest.raises(ValueError, match="unknown category"):
         process(Image.new("RGB", (64, 64), "white"), cfg)
+
+
+def test_feedback_is_appended_for_retries():
+    prompt = build_prompt("bottom", ["the legs should flare out from the knee"])
+    assert prompt.startswith(build_prompt("bottom"))
+    assert "- the legs should flare out from the knee" in prompt
+    assert build_prompt("bottom", []) == build_prompt("bottom")

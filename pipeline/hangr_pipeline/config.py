@@ -12,6 +12,7 @@ from typing import Literal
 
 EnhanceProvider = Literal["none", "openai", "gemini"]
 CutoutMethod = Literal["model", "colorkey"]
+FidelityMethod = Literal["auto", "gemini", "colour"]
 
 
 def _env(name: str, default: str) -> str:
@@ -34,7 +35,24 @@ class PipelineConfig:
     # Retries of the enhance step when the fidelity check fails, before
     # falling back to the original photo.
     enhance_retries: int = 1
-    # Minimum colour-histogram similarity (0..1) between original and enhanced.
+    # How to check the enhanced image still shows the same item:
+    #   gemini -> a Gemini vision model compares both photos (colours, print,
+    #             text, hardware, cut). Needs GEMINI_API_KEY.
+    #   colour -> colour histograms of the two cutouts. No API call, but it
+    #             needs a clean cutout of the original photo and can't see
+    #             shape changes.
+    #   auto   -> gemini when enhancing with Gemini, otherwise colour.
+    fidelity_method: FidelityMethod = field(
+        default_factory=lambda: _env("FIDELITY_METHOD", "auto")  # type: ignore[return-value]
+    )
+    judge_model: str = field(default_factory=lambda: _env("JUDGE_MODEL", "gemini-flash-latest"))
+    # Minimum judge score (1-10) to accept the enhanced image.
+    fidelity_min_score: int = 7
+    # If no attempt reaches fidelity_min_score, the best attempt is still used
+    # (flagged needs_review) when it scores at least this; below it, the
+    # original photo is used.
+    fidelity_review_score: int = 5
+    # Minimum colour-histogram similarity (0..1), for the colour method.
     fidelity_threshold: float = 0.55
 
     # Step 2: background removal.
