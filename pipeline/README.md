@@ -25,7 +25,7 @@ photo ─► enhance (image-edit model, optional)
 
 | Step | GPU / API version | Fallback (runs anywhere) |
 |---|---|---|
-| Enhance | OpenAI (`gpt-image-2`) or Gemini (`gemini-3.1-flash-image`) image editing. The prompt depends on `--category` (top, outerwear, dress, bottom, skirt, shoes, bag, jewelry, accessory, or auto): clothes get the ghost-mannequin look, other items a catalogue product shot. The background colour is chosen to contrast with the item (dark grey for light items) so it cuts out cleanly (`prompts.py`, `enhance.py`) | `--enhance none` |
+| Enhance | OpenAI (`gpt-image-2`) or Gemini (`gemini-3.1-flash-lite-image`) image editing. The prompt depends on `--category` (top, outerwear, dress, bottom, skirt, shoes, bag, jewelry, accessory, or auto): clothes get the ghost-mannequin look, other items a catalogue product shot. The background colour is chosen to contrast with the item (dark grey for light items) so it cuts out cleanly (`prompts.py`, `enhance.py`) | `--enhance none` |
 | Fidelity | Gemini vision judge (`gemini-flash-latest`) compares the photo and the product shot: colours, print, text, hardware and cut. Scores 1–10; 7+ passes, and its list of differences is fed into the retry (`fidelity.py`) | `HANGR_FIDELITY_METHOD=colour`: colour histograms (no API call, but needs a clean cutout of the original and can't see shape) |
 | Cutout | BiRefNet via `rembg` | `--cutout colorkey`: flood-fills the plain background from the border, then unmixes garment and background colour along the edge. Works on the product shots (plain background); not on raw photos of clothes on a patterned floor |
 

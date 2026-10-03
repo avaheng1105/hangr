@@ -27,7 +27,7 @@ class PipelineConfig:
     )
     openai_model: str = field(default_factory=lambda: _env("OPENAI_IMAGE_MODEL", "gpt-image-2"))
     gemini_model: str = field(
-        default_factory=lambda: _env("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image")
+        default_factory=lambda: _env("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-lite-image")
     )
     # Item type, which picks the styling in the prompt (see prompts.CATEGORIES).
     # "auto" lets the image model decide.
