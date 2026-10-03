@@ -10,7 +10,8 @@ screens we're replicating.
 | Folder | What | Stack |
 |---|---|---|
 | [`pipeline/`](pipeline/README.md) | Photo → product shot → transparent cutout | Python; OpenAI/Gemini image editing; BiRefNet on a Modal GPU |
-| [`app/`](app/) | The mobile app (currently a placeholder wardrobe screen) | Expo (React Native) + TypeScript |
+| [`app/`](app/) | The mobile app: wardrobe grid, add a photo, review flagged items | Expo (React Native) + TypeScript |
+| [`supabase/`](supabase/README.md) | Items, Storage, access rules and the `jobs` Edge Function that hands work to the worker | Supabase (Postgres, Storage, Deno) |
 
 ## How an item is processed
 
@@ -22,7 +23,8 @@ screens we're replicating.
    product shot (colours, print, text, hardware, cut). If the model changed
    the item, it retries once with the list of differences to fix; a near miss
    is kept but flagged for review, anything worse falls back to the original
-   photo.
+   photo. In the app, a flagged item gets a Review badge: the user keeps it,
+   swaps in their own photo, or regenerates it with a short note.
 3. **Cutout:** background removal, cropped and centred on a square, plus a
    thumbnail for the grid.
 
@@ -33,6 +35,10 @@ cd app
 npm install
 npx expo start          # press w for web, or scan the QR code with Expo Go
 ```
+
+Without Supabase settings the app shows a few bundled sample items. To use
+the backend, copy `app/.env.example` to `app/.env.local` and fill it in
+(deploy steps: [`supabase/README.md`](supabase/README.md)).
 
 ## Planned architecture
 
@@ -47,5 +53,5 @@ npx expo start          # press w for web, or scan the QR code with Expo Go
 ## Next steps
 
 1. Run the enhance step on real clothing photos and tune the prompt against Starlook's look.
-2. Add Supabase: auth, the `items` / `item_assets` / `outfits` tables, and the upload → worker flow.
+2. Deploy the Supabase backend and Modal worker (code is in place, see `supabase/README.md`), then add the `outfits` table and real sign-in (accounts are anonymous guests for now).
 3. Build the Starlook screens: wardrobe grid, batch import with auto-tagging, outfit shuffler, canvas, calendar.

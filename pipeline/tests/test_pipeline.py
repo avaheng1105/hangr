@@ -224,3 +224,75 @@ def test_soft_edges_take_the_garment_colour_not_the_background():
     edge = (alpha > 0.05) & (alpha < 0.98)
     assert edge.any()
     assert rgb[edge].min() > 0.9  # white, not grey or dark
+
+
+def test_flagged_item_also_gets_a_photo_cutout(photo, monkeypatch):
+    monkeypatch.setattr(pipeline, "enhance", lambda image, cfg, feedback=None: image.copy())
+    monkeypatch.setattr(fidelity, "judge_gemini", lambda o, e, cfg: Verdict(6, ["a"]))
+    result = process(photo, no_ml(enhance_provider="gemini", output_size=256))
+
+    assert result.meta["enhance"]["needs_review"] is True
+    assert {"photo_cutout.png", "photo_thumb.webp"} <= set(result.assets)
+    cutout = Image.open(io.BytesIO(result.assets["photo_cutout.png"]))
+    assert cutout.mode == "RGBA" and cutout.size == (256, 256)
+
+
+def test_accepted_item_has_no_photo_cutout(photo, monkeypatch):
+    monkeypatch.setattr(pipeline, "enhance", lambda image, cfg, feedback=None: image.copy())
+    monkeypatch.setattr(fidelity, "judge_gemini", lambda o, e, cfg: Verdict(9, []))
+    result = process(photo, no_ml(enhance_provider="gemini", output_size=256))
+    assert "photo_cutout.png" not in result.assets
+
+
+def test_regenerate_sends_note_and_previous_issues_once(photo, monkeypatch):
+    calls = []
+
+    def fake_enhance(image, cfg, feedback=None):
+        calls.append((cfg.category, feedback))
+        return image.copy()
+
+    judge_calls = []
+
+    def judge(o, e, cfg):
+        judge_calls.append(1)
+        return Verdict(6, ["still wrong"])
+
+    monkeypatch.setattr(pipeline, "enhance", fake_enhance)
+    monkeypatch.setattr(fidelity, "judge_gemini", judge)
+    previous = {"enhance": {"category": "top", "attempts": [
+        {"score": 5, "issues": ["older"]},
+        {"score": 6, "issues": ["fix the lettering"]},
+        {"error": "provider down"},
+    ]}}
+    result = pipeline.regenerate(
+        photo, previous, "  plain\nshort sleeves ", no_ml(enhance_provider="gemini", output_size=256)
+    )
+
+    meta = result.meta["enhance"]
+    # One enhance call and one judge call, even though it failed again.
+    assert calls == [("top", ["plain short sleeves", "fix the lettering"])]
+    assert len(judge_calls) == 1
+    assert meta["note"] == "plain short sleeves" and meta["regenerated"] is True
+    # Judged again, so a near miss is flagged again.
+    assert meta["needs_review"] is True and "photo_cutout.png" in result.assets
+
+
+def test_note_stays_in_the_prompt_on_retries(photo, monkeypatch):
+    calls = []
+
+    def fake_enhance(image, cfg, feedback=None):
+        calls.append(feedback)
+        return image.copy()
+
+    verdicts = iter([Verdict(4, ["the legs should flare out"]), Verdict(9, [])])
+    monkeypatch.setattr(pipeline, "enhance", fake_enhance)
+    monkeypatch.setattr(fidelity, "judge_gemini", lambda o, e, cfg: next(verdicts))
+    process(photo, no_ml(enhance_provider="gemini", output_size=256), note="flared")
+    assert calls == [["flared"], ["flared", "the legs should flare out"]]
+
+
+def test_clean_note_trims_and_caps():
+    assert pipeline.clean_note(None) is None
+    assert pipeline.clean_note("   \n ") is None
+    assert pipeline.clean_note("a\n  b") == "a b"
+    assert len(pipeline.clean_note("x" * 500)) == pipeline.NOTE_MAX_CHARS

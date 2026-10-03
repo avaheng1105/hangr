@@ -5,13 +5,16 @@
       -> fidelity check (vision judge or colour)  retry with feedback, then fall back
       -> background removal + framing
       -> assets: original, enhanced, cutout, thumb + metadata
+
+`regenerate` re-runs an item the user sent back from review, with their
+note added to the prompt.
 """
 
 from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 from PIL import Image
@@ -43,8 +46,21 @@ def load_models(cfg: PipelineConfig) -> None:
     cutout.load_models(cfg)
 
 
-def process(photo: bytes | Image.Image, cfg: PipelineConfig | None = None) -> PipelineResult:
+def process(
+    photo: bytes | Image.Image,
+    cfg: PipelineConfig | None = None,
+    note: str | None = None,
+    feedback: list[str] | None = None,
+) -> PipelineResult:
+    """Run the pipeline on one photo.
+
+    `note` is the user's own correction ("plain short sleeves"); it goes into
+    every enhance prompt. `feedback` is what to fix in the first attempt
+    (later attempts get the judge's list instead).
+    """
     cfg = cfg or PipelineConfig()
+    note = clean_note(note)
+    pinned = [note] if note else []
     if cfg.enhance_provider != "none":
         build_prompt(cfg.category)  # fail fast on a bad category, before any work
     timings: dict[str, float] = {}
@@ -82,7 +98,9 @@ def process(photo: bytes | Image.Image, cfg: PipelineConfig | None = None) -> Pi
             fidelity_method=method,
             attempts=[],
         )
-        feedback: list[str] | None = None
+        if note:
+            enhance_meta["note"] = note
+        feedback = [*pinned, *(feedback or [])] or None
         # Best judged attempt so far: (score, enhanced image, its cutout).
         best: tuple[int, Image.Image, tuple[np.ndarray, np.ndarray]] | None = None
         # An attempt the judge couldn't check (judge call failed).
@@ -113,7 +131,7 @@ def process(photo: bytes | Image.Image, cfg: PipelineConfig | None = None) -> Pi
                 attempt["score"] = verdict.score
                 attempt["issues"] = verdict.issues
                 passed = verdict.score >= cfg.fidelity_min_score
-                feedback = verdict.issues or None
+                feedback = [*pinned, *verdict.issues] or None
                 if best is None or verdict.score > best[0]:
                     best = (verdict.score, enhanced, e_cut)
             else:
@@ -143,11 +161,17 @@ def process(photo: bytes | Image.Image, cfg: PipelineConfig | None = None) -> Pi
         enhance_meta["used"] = chosen is not None
         enhance_meta["background"] = pick_background(original)
 
-    rgb, alpha = chosen if chosen is not None else cut_original()
-    cutout_img = from_float(np.dstack([rgb, alpha]))
-    result.assets["cutout.png"] = to_png_bytes(cutout_img)
-    thumb = cutout_img.resize((cfg.thumb_size, cfg.thumb_size), Image.Resampling.LANCZOS)
-    result.assets["thumb.webp"] = to_webp_bytes(thumb)
+    def add_cutout(prefix: str, rgb: np.ndarray, alpha: np.ndarray) -> None:
+        cutout_img = from_float(np.dstack([rgb, alpha]))
+        result.assets[f"{prefix}cutout.png"] = to_png_bytes(cutout_img)
+        thumb = cutout_img.resize((cfg.thumb_size, cfg.thumb_size), Image.Resampling.LANCZOS)
+        result.assets[f"{prefix}thumb.webp"] = to_webp_bytes(thumb)
+
+    add_cutout("", *(chosen if chosen is not None else cut_original()))
+    if enhance_meta.get("needs_review"):
+        # The fallback the review screen offers ("use my photo"): always
+        # faithful, and costs a background removal, not an API call.
+        add_cutout("photo_", *cut_original())
 
     result.meta = {
         "enhance": enhance_meta,
@@ -155,4 +179,42 @@ def process(photo: bytes | Image.Image, cfg: PipelineConfig | None = None) -> Pi
         "size": cfg.output_size,
         "timings_s": timings,
     }
+    return result
+
+
+# Long enough for "plain short sleeves, no pocket", short enough that the
+# note can't take over the prompt.
+NOTE_MAX_CHARS = 200
+
+
+def clean_note(note: str | None) -> str | None:
+    """The user's note as one short line, or None if it's empty."""
+    if not note:
+        return None
+    note = " ".join(note.split())[:NOTE_MAX_CHARS].strip()
+    return note or None
+
+
+def regenerate(
+    original: bytes | Image.Image,
+    previous_meta: dict | None = None,
+    note: str | None = None,
+    cfg: PipelineConfig | None = None,
+) -> PipelineResult:
+    """Re-run an item the user sent back from the review screen.
+
+    `original` is the item's original.webp and `previous_meta` its meta.json.
+    The prompt gets the user's note plus the judge's list of differences from
+    the kept attempt. The result is judged again, so a bad image is flagged
+    again rather than accepted. It makes one enhance call and one judge call:
+    no automatic retry, since the user can ask again with a better note.
+    """
+    cfg = replace(cfg or PipelineConfig(), enhance_retries=0)
+    previous = (previous_meta or {}).get("enhance", {})
+    if cfg.category == "auto" and previous.get("category"):
+        cfg.category = previous["category"]
+    judged = [a for a in previous.get("attempts", []) if "score" in a]
+    issues = max(judged, key=lambda a: a["score"])["issues"] if judged else []
+    result = process(original, cfg, note=note, feedback=issues)
+    result.meta["enhance"]["regenerated"] = True
     return result

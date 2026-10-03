@@ -6,3 +6,6 @@ scipy>=1.13
 # Image-edit providers (only the one you use is needed)
 openai>=2.0
 google-genai>=1.30
+
+# Talking to Supabase from the worker (store.py)
+httpx>=0.27
