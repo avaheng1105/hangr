@@ -67,6 +67,17 @@ class Pipeline:
         result = process(photo, cfg)
         return {"assets": result.assets, "meta": result.meta}
 
+    @modal.method()
+    def regenerate(
+        self, original: bytes, previous_meta: dict, note: str = "", enhance_provider: str = "gemini"
+    ) -> dict:
+        """Re-run an item flagged for review (one enhance call, one judge call)."""
+        from hangr_pipeline import regenerate
+
+        cfg = replace(self.cfg, enhance_provider=enhance_provider)
+        result = regenerate(original, previous_meta, note, cfg)
+        return {"assets": result.assets, "meta": result.meta}
+
 
 @app.local_entrypoint()
 def main(photo: str, out: str = "out", enhance: str = "none", category: str = "auto") -> None:

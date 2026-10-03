@@ -19,7 +19,28 @@ photo ─► enhance (image-edit model, optional)
 | `enhanced.webp` | The image-edit model's result (present when enhance ran, even if rejected) |
 | `cutout.png` | 1024×1024 RGBA item on a transparent background — what the wardrobe and canvas show |
 | `thumb.webp` | 256×256 cutout for closet grids |
+| `photo_cutout.png` · `photo_thumb.webp` | Only on items flagged `needs_review`: the original photo cut out, for the app's "use my photo" choice (no API call) |
 | `meta.json` | Which steps ran, fidelity scores, prompt version, timings |
+
+## Reviewing a flagged item
+
+The app shows a **Review** badge on items whose `meta.json` has
+`enhance.needs_review`. The review screen shows the photo and the product
+shot side by side, with the judge's list of differences, and offers:
+
+- **Keep this image:** clears the flag.
+- **Use my photo instead:** swaps in `photo_cutout.png`. Always faithful,
+  since nothing is generated.
+- **Regenerate**, with an optional note ("plain short sleeves"):
+  `regenerate()` in `pipeline.py` re-runs the item from its `original.webp`
+  with the note and the judge's previous list of differences in the prompt.
+  The result is judged again, so a bad image is flagged again. It makes one
+  image call and one judge call, with no automatic retry.
+
+```bash
+python -m hangr_pipeline out/original.webp -o out2 --enhance gemini \
+    --previous out/meta.json --note "plain short sleeves"
+```
 
 ## Each step, and its no-ML fallback
 

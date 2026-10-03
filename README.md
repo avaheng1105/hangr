@@ -22,7 +22,8 @@ screens we're replicating.
    product shot (colours, print, text, hardware, cut). If the model changed
    the item, it retries once with the list of differences to fix; a near miss
    is kept but flagged for review, anything worse falls back to the original
-   photo.
+   photo. In the app, a flagged item gets a Review badge: the user keeps it,
+   swaps in their own photo, or regenerates it with a short note.
 3. **Cutout:** background removal, cropped and centred on a square, plus a
    thumbnail for the grid.
 
