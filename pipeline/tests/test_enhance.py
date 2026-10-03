@@ -181,3 +181,70 @@ def test_background_contrasts_with_the_item():
     navy_jeans.paste((40, 60, 110), (60, 60, 240, 240))
     assert pick_background(white_shirt) == DARK_BACKGROUND
     assert pick_background(navy_jeans) == LIGHT_BACKGROUND
+
+
+class FakeBFL:
+    """httpx.Client stand-in: one job that is pending once, then ready."""
+
+    requests: list = []
+    statuses: list = []
+
+    def __init__(self, **kwargs):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def _response(self, json=None, content=b""):
+        return SimpleNamespace(json=lambda: json, content=content, raise_for_status=lambda: None)
+
+    def post(self, url, headers, json):
+        FakeBFL.requests.append(("POST", url, headers, json))
+        return self._response({"id": "job1", "polling_url": "https://poll/job1"})
+
+    def get(self, url, headers=None):
+        FakeBFL.requests.append(("GET", url, headers, None))
+        if url == "https://poll/job1":
+            return self._response(FakeBFL.statuses.pop(0))
+        return self._response(content=to_png_bytes(OUTPUT))
+
+
+@pytest.fixture
+def fake_bfl(monkeypatch):
+    import httpx
+
+    from hangr_pipeline import enhance as enhance_mod
+
+    FakeBFL.requests = []
+    FakeBFL.statuses = [
+        {"status": "Pending"},
+        {"status": "Ready", "result": {"sample": "https://delivery/img.png"}},
+    ]
+    monkeypatch.setattr(httpx, "Client", FakeBFL)
+    monkeypatch.setattr(enhance_mod, "_BFL_POLL_SECONDS", 0)
+    monkeypatch.setenv("BFL_API_KEY", "test-key")
+    return FakeBFL
+
+
+def test_bfl_edit_polls_until_ready(fake_bfl):
+    cfg = PipelineConfig(enhance_provider="bfl", bfl_model="flux-test", category="top")
+    out = enhance(INPUT, cfg)
+    assert out.getpixel((0, 0))[:3] == (10, 200, 10)
+
+    method, url, headers, body = fake_bfl.requests[0]
+    assert (method, url) == ("POST", "https://api.bfl.ai/v1/flux-test")
+    assert headers["x-key"] == "test-key"
+    assert body["prompt"] == build_prompt("top")
+    assert max(from_bytes(base64.b64decode(body["input_image"])).size) == 1536
+    assert [r[1] for r in fake_bfl.requests[1:]] == [
+        "https://poll/job1", "https://poll/job1", "https://delivery/img.png"
+    ]
+
+
+def test_bfl_failed_job_raises(fake_bfl):
+    fake_bfl.statuses = [{"status": "Content Moderated"}]
+    with pytest.raises(EnhanceError):
+        enhance(INPUT, PipelineConfig(enhance_provider="bfl"))

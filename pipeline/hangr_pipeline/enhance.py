@@ -2,12 +2,15 @@
 
 Providers are called through their official SDKs, which are imported lazily
 so the rest of the pipeline works without them installed.
-API keys come from the standard env vars: OPENAI_API_KEY / GEMINI_API_KEY.
+API keys come from the standard env vars: OPENAI_API_KEY / GEMINI_API_KEY /
+BFL_API_KEY.
 """
 
 from __future__ import annotations
 
 import base64
+import os
+import time
 
 import numpy as np
 from PIL import Image
@@ -36,6 +39,8 @@ def enhance(
         return _enhance_openai(image, cfg, prompt)
     if cfg.enhance_provider == "gemini":
         return _enhance_gemini(image, cfg, prompt)
+    if cfg.enhance_provider == "bfl":
+        return _enhance_bfl(image, cfg, prompt)
     raise ValueError(f"unknown enhance provider: {cfg.enhance_provider!r}")
 
 
@@ -67,7 +72,7 @@ def _enhance_openai(image: Image.Image, cfg: PipelineConfig, prompt: str) -> Ima
         image=("garment.png", _prepare(image), "image/png"),
         prompt=prompt,
         size="auto",
-        quality="high",
+        quality=cfg.openai_quality,
         output_format="png",
     )
     if not result.data or not result.data[0].b64_json:
@@ -93,3 +98,40 @@ def _enhance_gemini(image: Image.Image, cfg: PipelineConfig, prompt: str) -> Ima
             if part.inline_data and part.inline_data.data:
                 return from_bytes(part.inline_data.data)
     raise EnhanceError("Gemini returned no image")
+
+
+# FLUX jobs are asynchronous: submit, then poll until the image is ready.
+_BFL_API = "https://api.bfl.ai/v1"
+_BFL_POLL_SECONDS = 1.0
+_BFL_TIMEOUT = 180.0
+
+
+def _enhance_bfl(image: Image.Image, cfg: PipelineConfig, prompt: str) -> Image.Image:
+    import httpx
+
+    headers = {"x-key": os.environ["BFL_API_KEY"], "accept": "application/json"}
+    with httpx.Client(timeout=60) as client:
+        job = client.post(
+            f"{_BFL_API}/{cfg.bfl_model}",
+            headers=headers,
+            json={
+                "prompt": prompt,
+                "input_image": base64.b64encode(_prepare(image)).decode(),
+                "output_format": "png",
+            },
+        )
+        job.raise_for_status()
+        polling_url = job.json()["polling_url"]
+        deadline = time.monotonic() + _BFL_TIMEOUT
+        while time.monotonic() < deadline:
+            time.sleep(_BFL_POLL_SECONDS)
+            status = client.get(polling_url, headers=headers)
+            status.raise_for_status()
+            body = status.json()
+            if body.get("status") == "Ready":
+                sample = client.get(body["result"]["sample"])
+                sample.raise_for_status()
+                return from_bytes(sample.content)
+            if body.get("status") not in ("Pending", "Processing", "Queued"):
+                raise EnhanceError(f"FLUX job ended with status {body.get('status')!r}")
+    raise EnhanceError("FLUX job timed out")

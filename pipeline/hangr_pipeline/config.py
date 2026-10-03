@@ -10,7 +10,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Literal
 
-EnhanceProvider = Literal["none", "openai", "gemini"]
+EnhanceProvider = Literal["none", "openai", "gemini", "bfl"]
 CutoutMethod = Literal["model", "colorkey"]
 FidelityMethod = Literal["auto", "gemini", "colour"]
 
@@ -26,9 +26,13 @@ class PipelineConfig:
         default_factory=lambda: _env("ENHANCE_PROVIDER", "none")  # type: ignore[return-value]
     )
     openai_model: str = field(default_factory=lambda: _env("OPENAI_IMAGE_MODEL", "gpt-image-2"))
+    # low / medium / high: OpenAI bills image output by quality.
+    openai_quality: str = field(default_factory=lambda: _env("OPENAI_IMAGE_QUALITY", "high"))
     gemini_model: str = field(
         default_factory=lambda: _env("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-lite-image")
     )
+    # Black Forest Labs (FLUX) endpoint name, as in https://api.bfl.ai/v1/<name>.
+    bfl_model: str = field(default_factory=lambda: _env("BFL_IMAGE_MODEL", "flux-2-klein-9b"))
     # Item type, which picks the styling in the prompt (see prompts.CATEGORIES).
     # "auto" lets the image model decide.
     category: str = "auto"

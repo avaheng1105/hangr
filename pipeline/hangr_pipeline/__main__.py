@@ -26,7 +26,7 @@ def main() -> None:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("photo", type=Path)
     parser.add_argument("-o", "--out", type=Path, default=Path("out"))
-    parser.add_argument("--enhance", choices=["none", "openai", "gemini"])
+    parser.add_argument("--enhance", choices=["none", "openai", "gemini", "bfl"])
     parser.add_argument("--category", choices=CATEGORIES, default="auto",
                         help="item type, picks the enhance styling (default: auto)")
     parser.add_argument("--cutout", choices=["model", "colorkey"])
