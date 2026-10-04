@@ -110,3 +110,33 @@ r = await as(B, `delete from storage.objects where name like '${A}/%' returning 
 check("B cannot delete A's files", r.ok && r.ok.length === 0, r);
 r = await as(A, `delete from storage.objects where name = '${A}/x/g1/cutout.png' returning name`);
 check('A deletes own files', r.ok && r.ok.length === 1, r);
+
+// Outfits
+r = await as(A, `insert into public.items (category) values ('bottom') returning id`);
+const aItem = r.ok[0].id;
+r = await as(B, `insert into public.items (category) values ('top') returning id`);
+const bItem = r.ok[0].id;
+r = await as(A, `insert into public.outfits (name) values ('Monday') returning id, user_id`);
+check('A creates an outfit, owned by A', r.ok && r.ok[0].user_id === A, r);
+const outfit = r.ok[0].id;
+r = await as(A, `insert into public.outfits (name, user_id) values ('x', '${B}')`);
+check('A cannot create an outfit for B', !!r.err, r);
+r = await as(A, `insert into public.outfit_items (outfit_id, item_id, position) values ('${outfit}', '${aItem}', 0) returning item_id`);
+check('A adds own item to own outfit', r.ok && r.ok.length === 1, r);
+r = await as(A, `insert into public.outfit_items (outfit_id, item_id) values ('${outfit}', '${bItem}')`);
+check("A cannot add B's item", !!r.err, r);
+r = await as(B, `insert into public.outfit_items (outfit_id, item_id) values ('${outfit}', '${bItem}')`);
+check("B cannot add to A's outfit", !!r.err, r);
+r = await as(B, `select * from public.outfits`);
+check("B cannot see A's outfits", r.ok && r.ok.length === 0, r);
+r = await as(B, `select * from public.outfit_items`);
+check("B cannot see A's outfit items", r.ok && r.ok.length === 0, r);
+r = await as(A, `update public.outfits set name = 'Tuesday' where id = '${outfit}' returning name`);
+check('A renames own outfit', r.ok && r.ok[0]?.name === 'Tuesday', r);
+r = await as(A, `update public.outfits set user_id = '${B}' where id = '${outfit}'`);
+check('A cannot hand an outfit to B', !!r.err, r);
+r = await as(A, `delete from public.items where id = '${aItem}'`);
+r = await as(A, `select * from public.outfit_items where outfit_id = '${outfit}'`);
+check('deleting an item takes it out of outfits', r.ok && r.ok.length === 0, r);
+r = await as(A, `delete from public.outfits where id = '${outfit}' returning id`);
+check('A deletes own outfit', r.ok && r.ok.length === 1, r);

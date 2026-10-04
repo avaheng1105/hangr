@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 
 import { closet, type ItemChanges } from './closet';
 import type { Item, ReviewResolution } from './items';
+import { outfits as outfitStore, type Outfit, type OutfitDraft } from './outfits';
 
 // How often to check on items the pipeline is still working on.
 const POLL_MS = 4000;
@@ -20,15 +21,19 @@ type ClosetState = {
   review(item: Item, resolution: ReviewResolution): Promise<void>;
   regenerate(item: Item, note: string): Promise<void>;
   update(item: Item, changes: ItemChanges): Promise<void>;
+  outfits: Outfit[];
+  saveOutfit(draft: OutfitDraft): Promise<Outfit>;
+  removeOutfit(id: string): Promise<void>;
 };
 
 const ClosetContext = createContext<ClosetState | null>(null);
 
-// The user's items, shared by every screen.
+// The user's items and outfits, shared by every screen.
 export function ClosetProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<Item[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [outfits, setOutfits] = useState<Outfit[]>([]);
 
   const refresh = useCallback(async () => {
     try {
@@ -39,9 +44,14 @@ export function ClosetProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Items first: loading them signs the user in.
     closet
       .load()
-      .then(setItems)
+      .then((loaded) => {
+        setItems(loaded);
+        return outfitStore.load();
+      })
+      .then(setOutfits)
       .catch((e) => setMessage(`Couldn't load your closet: ${errorMessage(e)}`));
   }, []);
 
@@ -88,6 +98,10 @@ export function ClosetProvider({ children }: { children: React.ReactNode }) {
       async remove(item) {
         await closet.remove(item);
         setItems((current) => current.filter((i) => i.id !== item.id));
+        // The database takes it out of every outfit too.
+        setOutfits((current) =>
+          current.map((o) => ({ ...o, itemIds: o.itemIds.filter((id) => id !== item.id) })),
+        );
       },
 
       async review(item, resolution) {
@@ -101,8 +115,21 @@ export function ClosetProvider({ children }: { children: React.ReactNode }) {
       async update(item, changes) {
         replace(await closet.update(item, changes));
       },
+
+      outfits,
+
+      async saveOutfit(draft) {
+        const saved = await outfitStore.save(draft);
+        setOutfits((current) => [saved, ...current.filter((o) => o.id !== saved.id)]);
+        return saved;
+      },
+
+      async removeOutfit(id) {
+        await outfitStore.remove(id);
+        setOutfits((current) => current.filter((o) => o.id !== id));
+      },
     };
-  }, [items, message, adding, refresh]);
+  }, [items, message, adding, outfits, refresh]);
 
   return <ClosetContext.Provider value={state}>{children}</ClosetContext.Provider>;
 }

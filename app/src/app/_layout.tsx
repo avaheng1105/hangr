@@ -16,8 +16,9 @@ export default function RootLayout() {
           contentStyle: { backgroundColor: colors.background },
         }}
       >
-        <Stack.Screen name="index" options={{ title: 'My Wardrobe' }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false, title: '' }} />
         <Stack.Screen name="item/[id]" options={{ title: '' }} />
+        <Stack.Screen name="outfit/[id]" options={{ title: '' }} />
       </Stack>
       <StatusBar style="dark" />
     </ClosetProvider>

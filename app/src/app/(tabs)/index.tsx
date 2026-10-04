@@ -10,8 +10,8 @@ import {
   View,
 } from 'react-native';
 
-import { Chip } from '../Chip';
-import { useCloset } from '../ClosetContext';
+import { Chip } from '../../Chip';
+import { useCloset } from '../../ClosetContext';
 import {
   CATEGORIES,
   categoryLabel,
@@ -19,8 +19,8 @@ import {
   needsReview,
   type Category,
   type Item,
-} from '../items';
-import { colors } from '../theme';
+} from '../../items';
+import { colors } from '../../theme';
 
 // The closet: every item as a tile, filterable by kind.
 export default function Wardrobe() {
