@@ -44,3 +44,12 @@ def test_feedback_is_appended_for_retries():
     assert prompt.startswith(build_prompt("bottom"))
     assert "- the legs should flare out from the knee" in prompt
     assert build_prompt("bottom", []) == build_prompt("bottom")
+
+
+def test_auto_prompt_carries_every_category_styling():
+    from hangr_pipeline.prompts import _STYLES
+
+    prompt = build_prompt("auto")
+    for styling in _STYLES.values():
+        assert styling in prompt
+    assert "never a flat lay" in prompt
