@@ -3,6 +3,7 @@
     "name": "Hangr",
     "slug": "hangr",
     "version": "1.0.0",
+    "scheme": "hangr",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -22,6 +23,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "expo-router",
       [
         "expo-image-picker",
         {

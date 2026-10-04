@@ -59,6 +59,9 @@ def similarity(
 class Verdict:
     score: int  # 1-10, how faithfully the enhanced image shows the item
     issues: list[str] = field(default_factory=list)  # concrete differences
+    # What kind of item the photo shows (one of prompts.CATEGORIES, never
+    # "auto"), or None if the judge gave something else.
+    category: str | None = None
     # Whether the image follows the house style (see check_style). Its
     # problems are in `issues` too, so a retry fixes them.
     style_ok: bool = True
@@ -87,6 +90,9 @@ image 1 (10 = a shopper would recognise it as exactly the same item;
 6 or below = something a shopper would notice is different). List each
 concrete difference as a short instruction for fixing it, e.g. "the legs
 should flare out from the knee". Leave the list empty if there are none.
+
+Also say what kind of item image 1 shows, as one of: top, outerwear, dress,
+bottom (trousers, jeans, shorts), skirt, shoes, bag, jewelry, accessory.
 """
 
 # Big enough to see prints and text, small enough to keep the call cheap.
@@ -133,12 +139,20 @@ def _ask_gemini(contents: list, schema, cfg: PipelineConfig):
 def judge_gemini(original: Image.Image, enhanced: Image.Image, cfg: PipelineConfig) -> Verdict:
     from pydantic import BaseModel
 
+    from .prompts import CATEGORIES
+
     class _Schema(BaseModel):
         score: int
         issues: list[str]
+        category: str
 
     parsed = _ask_gemini([_image_part(original), _image_part(enhanced), _JUDGE_PROMPT], _Schema, cfg)
-    return Verdict(score=max(1, min(10, parsed.score)), issues=parsed.issues)
+    category = parsed.category.strip().lower()
+    return Verdict(
+        score=max(1, min(10, parsed.score)),
+        issues=parsed.issues,
+        category=category if category in CATEGORIES and category != "auto" else None,
+    )
 
 
 _STYLE_PROMPT = """\

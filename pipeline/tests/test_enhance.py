@@ -98,7 +98,7 @@ def test_gemini_judge_parses_structured_verdict(monkeypatch):
         def generate_content(self, **kwargs):
             calls.append(kwargs)
             schema = kwargs["config"].response_schema
-            return SimpleNamespace(parsed=schema(score=12, issues=["legs should flare"]), text="")
+            return SimpleNamespace(parsed=schema(score=12, issues=["legs should flare"], category=" Bottom "), text="")
 
     class FakeClient:
         def __init__(self):
@@ -108,6 +108,7 @@ def test_gemini_judge_parses_structured_verdict(monkeypatch):
     verdict = judge_gemini(INPUT, OUTPUT, PipelineConfig(judge_model="test-judge"))
     assert verdict.score == 10  # clamped to 1-10
     assert verdict.issues == ["legs should flare"]
+    assert verdict.category == "bottom"
     assert calls[0]["model"] == "test-judge"
     assert len(calls[0]["contents"]) == 3  # original, enhanced, instructions
 
@@ -125,7 +126,7 @@ def _flaky_judge(monkeypatch, failures):
             if pending:
                 raise pending.pop(0)
             schema = kwargs["config"].response_schema
-            return SimpleNamespace(parsed=schema(score=8, issues=[]), text="")
+            return SimpleNamespace(parsed=schema(score=8, issues=[], category="trousers"), text="")
 
     class FakeClient:
         def __init__(self):
@@ -143,7 +144,9 @@ def test_judge_retries_transient_errors(monkeypatch):
     unavailable = errors.ServerError(503, {"error": {"message": "overloaded"}})
     calls = _flaky_judge(monkeypatch, [unavailable, unavailable])
     cfg = PipelineConfig(judge_retries=2, judge_retry_delay=0)
-    assert judge_gemini(INPUT, OUTPUT, cfg).score == 8
+    verdict = judge_gemini(INPUT, OUTPUT, cfg)
+    assert verdict.score == 8
+    assert verdict.category is None  # not one of the categories
     assert len(calls) == 3
 
 

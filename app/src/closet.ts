@@ -1,6 +1,14 @@
 import { FunctionsHttpError } from '@supabase/supabase-js';
 
-import type { Item, ItemAssets, ItemMeta, ItemStatus, ReviewResolution } from './items';
+import {
+  displayName,
+  type Category,
+  type Item,
+  type ItemAssets,
+  type ItemMeta,
+  type ItemStatus,
+  type ReviewResolution,
+} from './items';
 import { SAMPLE_ITEMS } from './sampleItems';
 import { supabase } from './supabase';
 
@@ -15,10 +23,23 @@ export type Closet = {
   // Deletes an item and its files.
   remove(item: Item): Promise<void>;
   review(item: Item, resolution: ReviewResolution): Promise<Item>;
+  // Saves the user's details for an item.
+  update(item: Item, changes: ItemChanges): Promise<Item>;
   // Starts a regenerate run (one image call, one judge call). The item is
   // 'processing' until the worker writes the new image.
   regenerate(item: Item, note: string): Promise<Item>;
 };
+
+export type ItemChanges = Partial<Pick<Item, 'category' | 'customName' | 'notes'>>;
+
+// Same limits as the items table's check constraints.
+export const NAME_MAX_CHARS = 60;
+export const NOTES_MAX_CHARS = 500;
+
+function applyChanges(item: Item, changes: ItemChanges): Item {
+  const next = { ...item, ...changes };
+  return { ...next, name: displayName(next.category, next.customName) };
+}
 
 export class NotConnectedError extends Error {}
 
@@ -55,6 +76,7 @@ const sampleCloset: Closet = {
   },
   remove: async () => {},
   review: async (item, resolution) => ({ ...item, resolution }),
+  update: async (item, changes) => applyChanges(item, changes),
   regenerate: async () => {
     throw new NotConnectedError(
       "Regenerating needs the Hangr backend, which isn't set up in this build. You can keep the image or use your photo for now.",
@@ -64,7 +86,9 @@ const sampleCloset: Closet = {
 
 type Row = {
   id: string;
-  category: string;
+  category: Category;
+  name: string | null;
+  notes: string | null;
   status: ItemStatus;
   meta: ItemMeta | null;
   review_resolution: ReviewResolution | null;
@@ -82,10 +106,6 @@ const ASSET_KEYS: Record<string, keyof ItemAssets> = {
 
 const SIGNED_URL_SECONDS = 60 * 60;
 const STALE_UPLOAD_MS = 10 * 60 * 1000;
-
-function itemName(category: string): string {
-  return category === 'auto' ? 'Item' : category[0].toUpperCase() + category.slice(1);
-}
 
 // The `error` field of a failed Edge Function call, or a generic message.
 async function functionError(error: unknown): Promise<Error> {
@@ -129,7 +149,9 @@ function liveCloset(client: NonNullable<typeof supabase>): Closet {
         .lt('created_at', new Date(Date.now() - STALE_UPLOAD_MS).toISOString());
       const { data, error } = await client
         .from('items')
-        .select('id, category, status, meta, review_resolution, error, item_assets(kind, path)')
+        .select(
+          'id, category, name, notes, status, meta, review_resolution, error, item_assets(kind, path)',
+        )
         .order('created_at', { ascending: false })
         .returns<Row[]>();
       if (error) throw error;
@@ -153,7 +175,10 @@ function liveCloset(client: NonNullable<typeof supabase>): Closet {
         }
         return {
           id: row.id,
-          name: itemName(row.category),
+          name: displayName(row.category, row.name ?? ''),
+          category: row.category,
+          customName: row.name ?? '',
+          notes: row.notes ?? '',
           status: row.status,
           assets: { ...assets, thumb: assets.thumb ?? assets.original ?? { uri: '' } },
           meta: row.meta ?? { enhance: {} },
@@ -206,6 +231,19 @@ function liveCloset(client: NonNullable<typeof supabase>): Closet {
         .eq('id', item.id);
       if (error) throw error;
       return { ...item, resolution };
+    },
+
+    async update(item, changes) {
+      const { error } = await client
+        .from('items')
+        .update({
+          ...(changes.category !== undefined && { category: changes.category }),
+          ...(changes.customName !== undefined && { name: changes.customName.trim() || null }),
+          ...(changes.notes !== undefined && { notes: changes.notes.trim() || null }),
+        })
+        .eq('id', item.id);
+      if (error) throw error;
+      return applyChanges(item, changes);
     },
 
     async regenerate(item, note) {

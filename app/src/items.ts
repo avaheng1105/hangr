@@ -30,12 +30,49 @@ export type ItemAssets = {
   photoThumb?: ImageSourcePropType;
 };
 
+// The kinds of item (items.category in Supabase, pipeline prompts.CATEGORIES).
+// 'auto' means not set yet: the pipeline fills it in when it recognises the item.
+export const CATEGORIES = [
+  'top',
+  'outerwear',
+  'dress',
+  'bottom',
+  'skirt',
+  'shoes',
+  'bag',
+  'jewelry',
+  'accessory',
+] as const;
+export type Category = (typeof CATEGORIES)[number] | 'auto';
+
+const CATEGORY_LABELS: Record<Category, string> = {
+  top: 'Top',
+  outerwear: 'Outerwear',
+  dress: 'Dress',
+  bottom: 'Bottoms',
+  skirt: 'Skirt',
+  shoes: 'Shoes',
+  bag: 'Bag',
+  jewelry: 'Jewellery',
+  accessory: 'Accessory',
+  auto: 'Not set',
+};
+
+export function categoryLabel(category: Category): string {
+  return CATEGORY_LABELS[category];
+}
+
 // Pipeline progress (items.status in Supabase). Sample items are 'ready'.
 export type ItemStatus = 'uploading' | 'processing' | 'ready' | 'failed';
 
 export type Item = {
   id: string;
+  // What the closet shows: the user's name for it, else its kind.
   name: string;
+  category: Category;
+  // The user's own name and notes (empty if not set).
+  customName: string;
+  notes: string;
   status: ItemStatus;
   assets: ItemAssets;
   meta: ItemMeta;
@@ -68,6 +105,17 @@ export function reviewMessage(reason: ReviewReason | undefined): string {
     return "We couldn't check this image against your photo. Take a look to make sure it's the same item.";
   }
   return 'This image may not match your photo exactly. Check the differences below.';
+}
+
+// The name the closet shows for an item.
+export function displayName(category: Category, customName: string): string {
+  return customName.trim() || (category === 'auto' ? 'Item' : categoryLabel(category));
+}
+
+// The full-size image of an item (see displayThumb).
+export function displayImage(item: Item): ImageSourcePropType {
+  if (item.resolution === 'photo' && item.assets.photoCutout) return item.assets.photoCutout;
+  return item.assets.cutout ?? item.assets.thumb;
 }
 
 // The image the closet shows: the photo cutout once the user picked it.

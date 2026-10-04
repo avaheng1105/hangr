@@ -48,6 +48,14 @@ class SupabaseStore:
             f"{self.url}/rest/v1/items", params={"id": f"eq.{item_id}"}, json=fields,
         ))
 
+    def fill_category(self, item_id: str, category: str) -> None:
+        """Set the item's category, unless the user already picked one."""
+        self._check(self.http.patch(
+            f"{self.url}/rest/v1/items",
+            params={"id": f"eq.{item_id}", "category": "eq.auto"},
+            json={"category": category},
+        ))
+
     def get_assets(self, item_id: str) -> dict[str, str]:
         """Asset file name (kind) -> Storage path."""
         response = self._check(self.http.get(

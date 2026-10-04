@@ -64,6 +64,7 @@ def run_job(job: dict, cfg: PipelineConfig, store: SupabaseStore) -> None:
         store.set_assets(item_id, paths)
         store.update_item(item_id, status="ready", meta=result.meta,
                           review_resolution=None, error=None)
+
     except Exception as exc:
         log.exception("job %s failed", job)
         # A failed regenerate leaves the previous image in place.
@@ -74,6 +75,13 @@ def run_job(job: dict, cfg: PipelineConfig, store: SupabaseStore) -> None:
             message = str(exc)[:500]
         store.update_item(item_id, status=status, error=message)
         return
+    # The app shows what kind of item it is; the user can change it.
+    detected = result.meta.get("enhance", {}).get("detected_category")
+    if detected and item["category"] == "auto":
+        try:
+            store.fill_category(item_id, detected)
+        except Exception:
+            log.exception("couldn't set the category of item %s", item_id)
     stale = [p for p in old.values() if p not in paths.values()]
     if job["type"] == "process":
         stale.append(upload)

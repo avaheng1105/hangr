@@ -157,6 +157,8 @@ def process(
                     if style_fixes:
                         verdict = replace(verdict, issues=[*verdict.issues, *style_fixes],
                                           style_ok=False)
+                if verdict.category and "detected_category" not in enhance_meta:
+                    enhance_meta["detected_category"] = verdict.category
                 attempt["score"] = verdict.score
                 attempt["issues"] = verdict.issues
                 attempt["style_ok"] = verdict.style_ok

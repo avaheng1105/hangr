@@ -30,6 +30,10 @@ class FakeStore:
     def update_item(self, item_id, **fields):
         self.item.update(fields)
 
+    def fill_category(self, item_id, category):
+        if self.item["category"] == "auto":
+            self.item["category"] = category
+
     def get_assets(self, item_id):
         return dict(self.assets)
 
@@ -170,3 +174,22 @@ def test_unreadable_upload_gets_a_plain_error():
     run_job({"type": "process", "item_id": ITEM}, cfg(), store)
     assert store.item["status"] == "failed"
     assert store.item["error"] == "The file wasn't a photo the app could read."
+
+
+def test_detected_category_fills_an_unset_one(monkeypatch):
+    monkeypatch.setattr(pipeline, "enhance", lambda image, cfg, feedback=None: image.copy())
+    monkeypatch.setattr(fidelity, "judge_gemini",
+                        lambda o, e, cfg: Verdict(9, [], category="skirt"))
+    store = FakeStore(item(category="auto"), {f"{USER}/{ITEM}/upload": jpeg()})
+    run_job({"item_id": ITEM, "type": "process"}, cfg(), store)
+    assert store.item["category"] == "skirt"
+    assert store.item["meta"]["enhance"]["detected_category"] == "skirt"
+
+
+def test_detected_category_never_replaces_the_users_choice(monkeypatch):
+    monkeypatch.setattr(pipeline, "enhance", lambda image, cfg, feedback=None: image.copy())
+    monkeypatch.setattr(fidelity, "judge_gemini",
+                        lambda o, e, cfg: Verdict(9, [], category="skirt"))
+    store = FakeStore(item(category="dress"), {f"{USER}/{ITEM}/upload": jpeg()})
+    run_job({"item_id": ITEM, "type": "process"}, cfg(), store)
+    assert store.item["category"] == "dress"
