@@ -11,7 +11,9 @@ export type Closet = {
   live: boolean;
   load(): Promise<Item[]>;
   // Uploads a photo and starts the pipeline on it.
-  add(photoUri: string, mimeType?: string): Promise<void>;
+  add(photo: PickedPhoto): Promise<void>;
+  // Deletes an item and its files.
+  remove(item: Item): Promise<void>;
   review(item: Item, resolution: ReviewResolution): Promise<Item>;
   // Starts a regenerate run (one image call, one judge call). The item is
   // 'processing' until the worker writes the new image.
@@ -19,6 +21,27 @@ export type Closet = {
 };
 
 export class NotConnectedError extends Error {}
+
+// A photo from expo-image-picker. `base64` is preferred: fetching a picked
+// file's uri doesn't work everywhere (on some phones it returns an error
+// page instead of the photo).
+export type PickedPhoto = { uri: string; base64?: string | null; mimeType?: string | null };
+
+// Smaller than this can't be a real photo (e.g. an error page).
+const MIN_PHOTO_BYTES = 1024;
+
+async function photoBytes(photo: PickedPhoto): Promise<Uint8Array> {
+  let bytes: Uint8Array;
+  if (photo.base64) {
+    bytes = Uint8Array.from(atob(photo.base64), (c) => c.charCodeAt(0));
+  } else {
+    const response = await fetch(photo.uri);
+    if (!response.ok) throw new Error(`couldn't read the photo (${response.status})`);
+    bytes = new Uint8Array(await response.arrayBuffer());
+  }
+  if (bytes.length < MIN_PHOTO_BYTES) throw new Error("couldn't read the photo");
+  return bytes;
+}
 
 // The user's note goes into the image prompt; the backend trims it to the
 // same length (pipeline.NOTE_MAX_CHARS).
@@ -30,6 +53,7 @@ const sampleCloset: Closet = {
   add: async () => {
     throw new NotConnectedError('Adding items needs the Hangr backend.');
   },
+  remove: async () => {},
   review: async (item, resolution) => ({ ...item, resolution }),
   regenerate: async () => {
     throw new NotConnectedError(
@@ -139,7 +163,7 @@ function liveCloset(client: NonNullable<typeof supabase>): Closet {
       });
     },
 
-    async add(photoUri, mimeType = 'image/jpeg') {
+    async add(picked) {
       const userId = await signIn();
       const { data: item, error } = await client
         .from('items')
@@ -148,10 +172,12 @@ function liveCloset(client: NonNullable<typeof supabase>): Closet {
         .single();
       if (error) throw error;
       try {
-        const photo = await (await fetch(photoUri)).arrayBuffer();
+        const photo = await photoBytes(picked);
         const upload = await client.storage
           .from('items')
-          .upload(`${userId}/${item.id}/upload`, photo, { contentType: mimeType });
+          .upload(`${userId}/${item.id}/upload`, photo, {
+            contentType: picked.mimeType ?? 'image/jpeg',
+          });
         if (upload.error) throw upload.error;
         await startJob({ item_id: item.id, type: 'process' });
       } catch (e) {
@@ -159,6 +185,18 @@ function liveCloset(client: NonNullable<typeof supabase>): Closet {
         await client.from('items').delete().eq('id', item.id);
         throw e;
       }
+    },
+
+    async remove(item) {
+      const userId = await signIn();
+      const { data: assets } = await client
+        .from('item_assets')
+        .select('path')
+        .eq('item_id', item.id);
+      const paths = [...(assets ?? []).map((a) => a.path), `${userId}/${item.id}/upload`];
+      await client.storage.from('items').remove(paths);
+      const { error } = await client.from('items').delete().eq('id', item.id);
+      if (error) throw error;
     },
 
     async review(item, resolution) {
