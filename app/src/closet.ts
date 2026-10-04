@@ -30,7 +30,7 @@ export type Closet = {
   regenerate(item: Item, note: string): Promise<Item>;
 };
 
-export type ItemChanges = Partial<Pick<Item, 'category' | 'customName' | 'notes'>>;
+export type ItemChanges = Partial<Pick<Item, 'category' | 'subcategory' | 'customName' | 'notes'>>;
 
 // Same limits as the items table's check constraints.
 export const NAME_MAX_CHARS = 60;
@@ -38,7 +38,7 @@ export const NOTES_MAX_CHARS = 500;
 
 function applyChanges(item: Item, changes: ItemChanges): Item {
   const next = { ...item, ...changes };
-  return { ...next, name: displayName(next.category, next.customName) };
+  return { ...next, name: displayName(next.category, next.customName, next.subcategory) };
 }
 
 export class NotConnectedError extends Error {}
@@ -87,6 +87,7 @@ const sampleCloset: Closet = {
 type Row = {
   id: string;
   category: Category;
+  subcategory: string | null;
   name: string | null;
   notes: string | null;
   status: ItemStatus;
@@ -150,7 +151,7 @@ function liveCloset(client: NonNullable<typeof supabase>): Closet {
       const { data, error } = await client
         .from('items')
         .select(
-          'id, category, name, notes, status, meta, review_resolution, error, item_assets(kind, path)',
+          'id, category, subcategory, name, notes, status, meta, review_resolution, error, item_assets(kind, path)',
         )
         .order('created_at', { ascending: false })
         .returns<Row[]>();
@@ -175,8 +176,9 @@ function liveCloset(client: NonNullable<typeof supabase>): Closet {
         }
         return {
           id: row.id,
-          name: displayName(row.category, row.name ?? ''),
+          name: displayName(row.category, row.name ?? '', row.subcategory),
           category: row.category,
+          subcategory: row.subcategory,
           customName: row.name ?? '',
           notes: row.notes ?? '',
           status: row.status,
@@ -238,6 +240,7 @@ function liveCloset(client: NonNullable<typeof supabase>): Closet {
         .from('items')
         .update({
           ...(changes.category !== undefined && { category: changes.category }),
+          ...(changes.subcategory !== undefined && { subcategory: changes.subcategory }),
           ...(changes.customName !== undefined && { name: changes.customName.trim() || null }),
           ...(changes.notes !== undefined && { notes: changes.notes.trim() || null }),
         })

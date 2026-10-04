@@ -62,6 +62,9 @@ class Verdict:
     # What kind of item the photo shows (one of prompts.CATEGORIES, never
     # "auto"), or None if the judge gave something else.
     category: str | None = None
+    # Its subcategory (a key of prompts.SUBCATEGORIES, belonging to
+    # `category`), or None.
+    subcategory: str | None = None
     # Whether the image follows the house style (see check_style). Its
     # problems are in `issues` too, so a retry fixes them.
     style_ok: bool = True
@@ -93,6 +96,8 @@ should flare out from the knee". Leave the list empty if there are none.
 
 Also say what kind of item image 1 shows, as one of: top, outerwear, dress,
 bottom (trousers, jeans, shorts), skirt, shoes, bag, jewelry, accessory.
+And give its subcategory, as one of: {SUBCATEGORIES}; or "other" if none
+fits.
 """
 
 # Big enough to see prints and text, small enough to keep the call cheap.
@@ -139,19 +144,29 @@ def _ask_gemini(contents: list, schema, cfg: PipelineConfig):
 def judge_gemini(original: Image.Image, enhanced: Image.Image, cfg: PipelineConfig) -> Verdict:
     from pydantic import BaseModel
 
-    from .prompts import CATEGORIES
+    from .prompts import CATEGORIES, SUBCATEGORIES
 
     class _Schema(BaseModel):
         score: int
         issues: list[str]
         category: str
+        subcategory: str
 
-    parsed = _ask_gemini([_image_part(original), _image_part(enhanced), _JUDGE_PROMPT], _Schema, cfg)
+    prompt = _JUDGE_PROMPT.replace("{SUBCATEGORIES}", ", ".join(SUBCATEGORIES))
+    parsed = _ask_gemini([_image_part(original), _image_part(enhanced), prompt], _Schema, cfg)
     category = parsed.category.strip().lower()
+    category = category if category in CATEGORIES and category != "auto" else None
+    subcategory = parsed.subcategory.strip().lower()
+    if subcategory in SUBCATEGORIES:
+        # The subcategory is the finer call: a "top" that is a jacket is outerwear.
+        category = SUBCATEGORIES[subcategory]
+    else:
+        subcategory = None
     return Verdict(
         score=max(1, min(10, parsed.score)),
         issues=parsed.issues,
-        category=category if category in CATEGORIES and category != "auto" else None,
+        category=category,
+        subcategory=subcategory,
     )
 
 

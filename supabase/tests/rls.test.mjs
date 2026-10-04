@@ -54,6 +54,10 @@ r = await as(A, `update public.items set category = 'skirt', name = 'Wrap skirt'
 check('A sets category, name and notes', r.ok && r.ok[0]?.name === 'Wrap skirt' && r.ok[0]?.category === 'skirt', r);
 r = await as(A, `update public.items set category = 'hat' where id = '${item}'`);
 check('A cannot set an unknown category', !!r.err, r);
+r = await as(A, `update public.items set subcategory = 'jeans' where id = '${item}' returning subcategory`);
+check('A sets a subcategory', r.ok && r.ok[0]?.subcategory === 'jeans', r);
+r = await as(A, `update public.items set subcategory = 'Not a key!' where id = '${item}'`);
+check('A cannot set a malformed subcategory', !!r.err, r);
 r = await as(A, `update public.items set name = repeat('x', 61) where id = '${item}'`);
 check('A cannot set an over-long name', !!r.err, r);
 r = await as(B, `update public.items set name = 'mine' where id = '${item}' returning id`);

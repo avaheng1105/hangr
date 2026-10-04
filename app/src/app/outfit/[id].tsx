@@ -15,20 +15,11 @@ import {
 
 import { Chip } from '../../Chip';
 import { useCloset } from '../../ClosetContext';
-import {
-  byKind,
-  CATEGORIES,
-  categoryLabel,
-  displayThumb,
-  type Category,
-  type Item,
-} from '../../items';
+import { byKind, displayThumb, SECTIONS, sectionOf, type Item } from '../../items';
 import { OUTFIT_NAME_MAX_CHARS, type Outfit } from '../../outfits';
 import { colors } from '../../theme';
 
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
-
-const ORDER: Category[] = [...CATEGORIES, 'auto'];
 
 // Create an outfit (/outfit/new) or edit one.
 export default function OutfitEditor() {
@@ -50,15 +41,18 @@ function Editor({ outfit }: { outfit?: Outfit }) {
   const { items, saveOutfit, removeOutfit } = useCloset();
   const [name, setName] = useState(outfit?.name ?? '');
   const [selected, setSelected] = useState<string[]>(outfit?.itemIds ?? []);
-  const [filter, setFilter] = useState<Category | null>(null);
+  const [filter, setFilter] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Only finished items can go in an outfit.
   const ready = items.filter((item) => item.status === 'ready');
-  const kinds = ORDER.filter((c) => ready.some((item) => item.category === c));
-  const active = filter && kinds.includes(filter) ? filter : null;
-  const choices = active ? ready.filter((item) => item.category === active) : ready;
+  // Only the sections the wardrobe actually has, in the usual order.
+  const sections = SECTIONS.filter((s) =>
+    ready.some((item) => sectionOf(item.category)?.key === s.key),
+  );
+  const active = filter && sections.some((s) => s.key === filter) ? filter : null;
+  const choices = active ? ready.filter((item) => sectionOf(item.category)?.key === active) : ready;
   const chosen = selected.flatMap((id) => ready.find((item) => item.id === id) ?? []);
 
   const toggle = (item: Item) =>
@@ -138,16 +132,16 @@ function Editor({ outfit }: { outfit?: Outfit }) {
         )}
 
         <Text style={styles.label}>Your wardrobe</Text>
-        {kinds.length > 1 && (
+        {sections.length > 1 && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.row}>
               <Chip label="All" selected={active === null} onPress={() => setFilter(null)} />
-              {kinds.map((kind) => (
+              {sections.map((s) => (
                 <Chip
-                  key={kind}
-                  label={categoryLabel(kind)}
-                  selected={active === kind}
-                  onPress={() => setFilter(active === kind ? null : kind)}
+                  key={s.key}
+                  label={s.label}
+                  selected={active === s.key}
+                  onPress={() => setFilter(active === s.key ? null : s.key)}
                 />
               ))}
             </View>

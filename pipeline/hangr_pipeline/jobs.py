@@ -20,6 +20,7 @@ from PIL import UnidentifiedImageError
 
 from .config import PipelineConfig
 from .pipeline import process, regenerate
+from .prompts import SUBCATEGORIES
 from .store import SupabaseStore
 
 log = logging.getLogger(__name__)
@@ -76,12 +77,21 @@ def run_job(job: dict, cfg: PipelineConfig, store: SupabaseStore) -> None:
         store.update_item(item_id, status=status, error=message)
         return
     # The app shows what kind of item it is; the user can change it.
-    detected = result.meta.get("enhance", {}).get("detected_category")
-    if detected and item["category"] == "auto":
+    enhance = result.meta.get("enhance", {})
+    detected = enhance.get("detected_category")
+    category = item["category"]
+    if detected and category == "auto":
         try:
             store.fill_category(item_id, detected)
+            category = detected
         except Exception:
             log.exception("couldn't set the category of item %s", item_id)
+    subcategory = enhance.get("detected_subcategory")
+    if subcategory and not item.get("subcategory") and SUBCATEGORIES.get(subcategory) == category:
+        try:
+            store.fill_subcategory(item_id, subcategory, category)
+        except Exception:
+            log.exception("couldn't set the subcategory of item %s", item_id)
     stale = [p for p in old.values() if p not in paths.values()]
     if job["type"] == "process":
         stale.append(upload)

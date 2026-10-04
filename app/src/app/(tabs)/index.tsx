@@ -13,65 +13,121 @@ import {
 import { Chip } from '../../Chip';
 import { useCloset } from '../../ClosetContext';
 import {
-  CATEGORIES,
-  categoryLabel,
+  SECTIONS,
   displayThumb,
   needsReview,
-  type Category,
+  sectionOf,
+  subcategoryOf,
   type Item,
 } from '../../items';
 import { colors } from '../../theme';
 
-// The closet: every item as a tile, filterable by kind.
+// Sidebar entries besides the sections: everything, and items whose kind
+// isn't known yet.
+const ALL = 'all';
+const NOT_SET = 'auto';
+
+// The closet: sections down the side, subcategories along the top, and the
+// items as tiles.
 export default function Wardrobe() {
   const { items, message, adding, live, addPhoto } = useCloset();
-  const [filter, setFilter] = useState<Category | null>(null);
+  const [sectionKey, setSectionKey] = useState(ALL);
+  const [subKey, setSubKey] = useState<string | null>(null);
 
-  // Only the kinds the closet actually has, in the usual order.
-  const kinds = [...CATEGORIES, 'auto' as const].filter((c) =>
-    items.some((item) => item.category === c),
+  const hasUnset = items.some((item) => item.category === 'auto');
+  // "Not set" goes away once its last item gets a kind.
+  const current = sectionKey === NOT_SET && !hasUnset ? ALL : sectionKey;
+  const section = SECTIONS.find((s) => s.key === current);
+
+  const inSection = items.filter((item) =>
+    current === ALL
+      ? true
+      : current === NOT_SET
+        ? item.category === 'auto'
+        : sectionOf(item.category)?.key === current,
   );
-  // A filter whose last item was deleted or changed shows everything again.
-  const active = filter && kinds.includes(filter) ? filter : null;
-  const shown = active ? items.filter((item) => item.category === active) : items;
+  const shown = subKey ? inSection.filter((item) => subcategoryOf(item) === subKey) : inSection;
+
+  const choose = (key: string) => {
+    setSectionKey(key);
+    setSubKey(null);
+  };
+
+  const sidebar = [
+    { key: ALL, label: 'All' },
+    ...SECTIONS,
+    ...(hasUnset ? [{ key: NOT_SET, label: 'Not set' }] : []),
+  ];
+  const emptyLabel = subKey
+    ? section?.subcategories.find((s) => s.key === subKey)?.label.toLowerCase()
+    : section?.label.toLowerCase();
 
   return (
     <View style={styles.screen}>
       {message && <Text style={styles.message}>{message}</Text>}
-      {kinds.length > 1 && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.filters}
-          contentContainerStyle={styles.filtersContent}
-        >
-          <Chip label="All" selected={active === null} onPress={() => setFilter(null)} />
-          {kinds.map((kind) => (
-            <Chip
-              key={kind}
-              label={categoryLabel(kind)}
-              selected={active === kind}
-              onPress={() => setFilter(active === kind ? null : kind)}
-            />
-          ))}
+      <View style={styles.columns}>
+        <ScrollView style={styles.sidebar} showsVerticalScrollIndicator={false}>
+          {sidebar.map((entry) => {
+            const selected = entry.key === current;
+            return (
+              <Pressable
+                key={entry.key}
+                style={[styles.sideItem, selected && styles.sideItemSelected]}
+                onPress={() => choose(entry.key)}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+              >
+                {selected && <View style={styles.sideMarker} />}
+                <Text style={[styles.sideText, selected && styles.sideTextSelected]}>
+                  {entry.label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </ScrollView>
-      )}
-      <ScrollView contentContainerStyle={styles.grid}>
-        {live && (
-          <Pressable
-            style={[styles.tile, styles.addTile]}
-            onPress={addPhoto}
-            disabled={adding}
-            accessibilityRole="button"
-            accessibilityLabel="Add an item"
-          >
-            {adding ? <ActivityIndicator /> : <Text style={styles.addText}>+ Add</Text>}
-          </Pressable>
-        )}
-        {shown.map((item) => (
-          <Tile key={item.id} item={item} onPress={() => router.push(`/item/${item.id}`)} />
-        ))}
-      </ScrollView>
+
+        <View style={styles.main}>
+          {section && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.filters}
+              contentContainerStyle={styles.filtersContent}
+            >
+              <Chip label="All" selected={subKey === null} onPress={() => setSubKey(null)} />
+              {section.subcategories.map((s) => (
+                <Chip
+                  key={s.key}
+                  label={s.label}
+                  selected={subKey === s.key}
+                  onPress={() => setSubKey(subKey === s.key ? null : s.key)}
+                />
+              ))}
+            </ScrollView>
+          )}
+          <ScrollView contentContainerStyle={styles.grid}>
+            {live && (
+              <Pressable
+                style={[styles.tile, styles.addTile]}
+                onPress={addPhoto}
+                disabled={adding}
+                accessibilityRole="button"
+                accessibilityLabel="Add an item"
+              >
+                {adding ? <ActivityIndicator /> : <Text style={styles.addText}>+ Add</Text>}
+              </Pressable>
+            )}
+            {shown.map((item) => (
+              <Tile key={item.id} item={item} onPress={() => router.push(`/item/${item.id}`)} />
+            ))}
+            {shown.length === 0 && (
+              <Text style={styles.empty}>
+                {current === ALL ? 'Your wardrobe is empty.' : `No ${emptyLabel} yet.`}
+              </Text>
+            )}
+          </ScrollView>
+        </View>
+      </View>
     </View>
   );
 }
@@ -114,11 +170,34 @@ function Tile({ item, onPress }: { item: Item; onPress: () => void }) {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background, paddingHorizontal: 16 },
-  message: { fontSize: 14, color: colors.danger, marginBottom: 12, textAlign: 'center' },
+  screen: { flex: 1, backgroundColor: colors.background },
+  message: {
+    fontSize: 14,
+    color: colors.danger,
+    marginBottom: 12,
+    paddingHorizontal: 16,
+    textAlign: 'center',
+  },
+  columns: { flex: 1, flexDirection: 'row' },
+  sidebar: { flexGrow: 0, width: 100 },
+  sideItem: { paddingVertical: 14, paddingLeft: 12, paddingRight: 4, justifyContent: 'center' },
+  sideItemSelected: { backgroundColor: colors.surface },
+  sideMarker: {
+    position: 'absolute',
+    left: 0,
+    top: 10,
+    bottom: 10,
+    width: 3,
+    borderRadius: 2,
+    backgroundColor: colors.accent,
+  },
+  sideText: { fontSize: 13, color: colors.muted },
+  sideTextSelected: { color: colors.text, fontWeight: '700' },
+  main: { flex: 1, paddingHorizontal: 12 },
   filters: { flexGrow: 0, marginBottom: 12 },
   filtersContent: { gap: 8 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 24 },
+  empty: { fontSize: 14, color: colors.muted, marginTop: 24, width: '100%', textAlign: 'center' },
   tile: {
     width: '48%',
     aspectRatio: 0.8,

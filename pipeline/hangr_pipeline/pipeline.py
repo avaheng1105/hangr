@@ -159,6 +159,8 @@ def process(
                                           style_ok=False)
                 if verdict.category and "detected_category" not in enhance_meta:
                     enhance_meta["detected_category"] = verdict.category
+                    if verdict.subcategory:
+                        enhance_meta["detected_subcategory"] = verdict.subcategory
                 attempt["score"] = verdict.score
                 attempt["issues"] = verdict.issues
                 attempt["style_ok"] = verdict.style_ok

@@ -34,6 +34,10 @@ class FakeStore:
         if self.item["category"] == "auto":
             self.item["category"] = category
 
+    def fill_subcategory(self, item_id, subcategory, category):
+        if self.item.get("subcategory") is None and self.item["category"] == category:
+            self.item["subcategory"] = subcategory
+
     def get_assets(self, item_id):
         return dict(self.assets)
 
@@ -193,3 +197,21 @@ def test_detected_category_never_replaces_the_users_choice(monkeypatch):
     store = FakeStore(item(category="dress"), {f"{USER}/{ITEM}/upload": jpeg()})
     run_job({"item_id": ITEM, "type": "process"}, cfg(), store)
     assert store.item["category"] == "dress"
+
+
+def test_detected_subcategory_fills_an_unset_one(monkeypatch):
+    monkeypatch.setattr(pipeline, "enhance", lambda image, cfg, feedback=None: image.copy())
+    monkeypatch.setattr(fidelity, "judge_gemini",
+                        lambda o, e, cfg: Verdict(9, [], category="bottom", subcategory="jeans"))
+    store = FakeStore(item(category="auto"), {f"{USER}/{ITEM}/upload": jpeg()})
+    run_job({"item_id": ITEM, "type": "process"}, cfg(), store)
+    assert (store.item["category"], store.item["subcategory"]) == ("bottom", "jeans")
+
+
+def test_detected_subcategory_skips_another_category(monkeypatch):
+    monkeypatch.setattr(pipeline, "enhance", lambda image, cfg, feedback=None: image.copy())
+    monkeypatch.setattr(fidelity, "judge_gemini",
+                        lambda o, e, cfg: Verdict(9, [], category="bottom", subcategory="jeans"))
+    store = FakeStore(item(category="dress"), {f"{USER}/{ITEM}/upload": jpeg()})
+    run_job({"item_id": ITEM, "type": "process"}, cfg(), store)
+    assert store.item.get("subcategory") is None

@@ -113,6 +113,20 @@ _RULES = """\
 
 CATEGORIES = (*_STYLES, "auto")
 
+# The app's wardrobe subcategories (app/src/items.ts SECTIONS) and the
+# category each one belongs to.
+SUBCATEGORIES = {
+    **dict.fromkeys(("tshirt", "shirt", "blouse", "sleeveless", "sweater", "hoodie"), "top"),
+    **dict.fromkeys(("jacket", "coat", "blazer", "cardigan"), "outerwear"),
+    **dict.fromkeys(("jeans", "trousers", "shorts", "leggings"), "bottom"),
+    "skirt": "skirt",
+    **dict.fromkeys(("mini_dress", "midi_dress", "maxi_dress", "jumpsuit"), "dress"),
+    **dict.fromkeys(("sneakers", "heels", "flats", "boots", "sandals"), "shoes"),
+    **dict.fromkeys(("handbag", "shoulder_bag", "tote", "backpack", "clutch"), "bag"),
+    **dict.fromkeys(("hat", "belt", "scarf", "sunglasses", "hair_accessory"), "accessory"),
+    **dict.fromkeys(("necklace", "earrings", "bracelet", "ring", "watch"), "jewelry"),
+}
+
 
 LIGHT_BACKGROUND = "light grey (#EEEEEE)"
 DARK_BACKGROUND = "dark charcoal grey (#3A3A3A)"

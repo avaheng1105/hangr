@@ -16,7 +16,15 @@ import {
 import { Chip } from '../../Chip';
 import { useCloset } from '../../ClosetContext';
 import { NAME_MAX_CHARS, NOTES_MAX_CHARS } from '../../closet';
-import { CATEGORIES, categoryLabel, displayImage, needsReview, type Item } from '../../items';
+import {
+  SECTIONS,
+  displayImage,
+  displayName,
+  needsReview,
+  sectionOf,
+  subcategoryOf,
+  type Item,
+} from '../../items';
 import { ReviewSheet } from '../../ReviewSheet';
 import { colors } from '../../theme';
 
@@ -50,6 +58,8 @@ function Details({ item }: { item: Item }) {
 
   const working = item.status === 'uploading' || item.status === 'processing';
   const hasImage = item.status === 'ready' || item.assets.cutout !== undefined;
+  const section = sectionOf(item.category);
+  const subcategory = subcategoryOf(item);
   const changed = customName.trim() !== item.customName || notes.trim() !== item.notes;
 
   const save = async (changes: Parameters<typeof update>[1]) => {
@@ -117,24 +127,47 @@ function Details({ item }: { item: Item }) {
           </Pressable>
         )}
 
-        <Text style={styles.label}>Type</Text>
+        <Text style={styles.label}>Category</Text>
         <View style={styles.chips}>
-          {CATEGORIES.map((category) => (
+          {SECTIONS.map((s) => (
             <Chip
-              key={category}
-              label={categoryLabel(category)}
-              selected={item.category === category}
-              onPress={() => void save({ category })}
+              key={s.key}
+              label={s.label}
+              selected={section?.key === s.key}
+              // Moving to another section starts with its main kind.
+              onPress={() =>
+                section?.key !== s.key &&
+                void save({ category: s.categories[0], subcategory: null })
+              }
             />
           ))}
         </View>
+        {section && (
+          <>
+            <Text style={styles.label}>Type</Text>
+            <View style={styles.chips}>
+              {section.subcategories.map((s) => (
+                <Chip
+                  key={s.key}
+                  label={s.label}
+                  selected={subcategory === s.key}
+                  onPress={() => void save({ category: s.category, subcategory: s.key })}
+                />
+              ))}
+            </View>
+          </>
+        )}
 
         <Text style={styles.label}>Name</Text>
         <TextInput
           style={styles.input}
           value={customName}
           onChangeText={setCustomName}
-          placeholder={item.category === 'auto' ? 'e.g. Puppy tee' : categoryLabel(item.category)}
+          placeholder={
+            item.category === 'auto'
+              ? 'e.g. Puppy tee'
+              : displayName(item.category, '', item.subcategory)
+          }
           placeholderTextColor="#9A9DAA"
           maxLength={NAME_MAX_CHARS}
         />

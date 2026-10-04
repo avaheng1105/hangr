@@ -98,7 +98,7 @@ def test_gemini_judge_parses_structured_verdict(monkeypatch):
         def generate_content(self, **kwargs):
             calls.append(kwargs)
             schema = kwargs["config"].response_schema
-            return SimpleNamespace(parsed=schema(score=12, issues=["legs should flare"], category=" Bottom "), text="")
+            return SimpleNamespace(parsed=schema(score=12, issues=["legs should flare"], category=" Bottom ", subcategory="other"), text="")
 
     class FakeClient:
         def __init__(self):
@@ -111,6 +111,24 @@ def test_gemini_judge_parses_structured_verdict(monkeypatch):
     assert verdict.category == "bottom"
     assert calls[0]["model"] == "test-judge"
     assert len(calls[0]["contents"]) == 3  # original, enhanced, instructions
+    assert verdict.subcategory is None  # "other"
+    assert "{SUBCATEGORIES}" not in calls[0]["contents"][2]
+
+
+def test_judge_subcategory_decides_the_category(monkeypatch):
+    from google import genai
+
+    from hangr_pipeline.fidelity import judge_gemini
+
+    class FakeModels:
+        def generate_content(self, **kwargs):
+            schema = kwargs["config"].response_schema
+            return SimpleNamespace(
+                parsed=schema(score=8, issues=[], category="top", subcategory=" Jacket "), text="")
+
+    monkeypatch.setattr(genai, "Client", lambda: SimpleNamespace(models=FakeModels()))
+    verdict = judge_gemini(INPUT, OUTPUT, PipelineConfig(judge_model="test-judge"))
+    assert (verdict.category, verdict.subcategory) == ("outerwear", "jacket")
 
 
 def _flaky_judge(monkeypatch, failures):
@@ -126,7 +144,7 @@ def _flaky_judge(monkeypatch, failures):
             if pending:
                 raise pending.pop(0)
             schema = kwargs["config"].response_schema
-            return SimpleNamespace(parsed=schema(score=8, issues=[], category="trousers"), text="")
+            return SimpleNamespace(parsed=schema(score=8, issues=[], category="trousers", subcategory="other"), text="")
 
     class FakeClient:
         def __init__(self):

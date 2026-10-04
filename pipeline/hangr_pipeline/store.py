@@ -56,6 +56,15 @@ class SupabaseStore:
             json={"category": category},
         ))
 
+    def fill_subcategory(self, item_id: str, subcategory: str, category: str) -> None:
+        """Set the item's subcategory, unless the user already picked one or
+        changed the item to another category."""
+        self._check(self.http.patch(
+            f"{self.url}/rest/v1/items",
+            params={"id": f"eq.{item_id}", "subcategory": "is.null", "category": f"eq.{category}"},
+            json={"subcategory": subcategory},
+        ))
+
     def get_assets(self, item_id: str) -> dict[str, str]:
         """Asset file name (kind) -> Storage path."""
         response = self._check(self.http.get(
