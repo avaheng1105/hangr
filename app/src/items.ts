@@ -58,6 +58,11 @@ const CATEGORY_LABELS: Record<Category, string> = {
   auto: 'Not set',
 };
 
+// Sorts items head to toe (by kind), items without a kind last.
+const KIND_ORDER: Category[] = [...CATEGORIES, 'auto'];
+export const byKind = (a: { category: Category }, b: { category: Category }) =>
+  KIND_ORDER.indexOf(a.category) - KIND_ORDER.indexOf(b.category);
+
 export function categoryLabel(category: Category): string {
   return CATEGORY_LABELS[category];
 }

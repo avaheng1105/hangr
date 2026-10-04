@@ -15,15 +15,20 @@ import {
 
 import { Chip } from '../../Chip';
 import { useCloset } from '../../ClosetContext';
-import { CATEGORIES, categoryLabel, displayThumb, type Category, type Item } from '../../items';
+import {
+  byKind,
+  CATEGORIES,
+  categoryLabel,
+  displayThumb,
+  type Category,
+  type Item,
+} from '../../items';
 import { OUTFIT_NAME_MAX_CHARS, type Outfit } from '../../outfits';
 import { colors } from '../../theme';
 
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-// Order of items in a saved outfit: head to toe, then the rest.
 const ORDER: Category[] = [...CATEGORIES, 'auto'];
-const byKind = (a: Item, b: Item) => ORDER.indexOf(a.category) - ORDER.indexOf(b.category);
 
 // Create an outfit (/outfit/new) or edit one.
 export default function OutfitEditor() {

@@ -1,3 +1,4 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -19,6 +20,15 @@ export default function OutfitsScreen() {
         accessibilityLabel="New outfit"
       >
         <Text style={styles.newText}>+ New outfit</Text>
+      </Pressable>
+      <Pressable
+        style={[styles.card, styles.newCard]}
+        onPress={() => router.push('/shuffle')}
+        accessibilityRole="button"
+        accessibilityLabel="Shuffle an outfit"
+      >
+        <Ionicons name="shuffle" size={28} color={colors.accent} />
+        <Text style={styles.newText}>Shuffle</Text>
       </Pressable>
       {outfits.map((outfit) => {
         const outfitItems = outfit.itemIds.flatMap((id) => byId.get(id) ?? []);
@@ -58,6 +68,7 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 4,
     borderWidth: 1,
     borderStyle: 'dashed',
     borderColor: '#B9B8C6',
