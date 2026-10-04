@@ -163,3 +163,10 @@ def test_store_raises_on_errors():
         transport=httpx.MockTransport(lambda r: httpx.Response(403, text="denied"))))
     with pytest.raises(RuntimeError, match="403"):
         store.download("x")
+
+
+def test_unreadable_upload_gets_a_plain_error():
+    store = FakeStore(item(), {f"{USER}/{ITEM}/upload": b"File not found"})
+    run_job({"type": "process", "item_id": ITEM}, cfg(), store)
+    assert store.item["status"] == "failed"
+    assert store.item["error"] == "The file wasn't a photo the app could read."

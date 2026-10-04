@@ -94,3 +94,11 @@ check('sixth job in a day hits the limit', err === 'daily limit reached', err);
 const st = (await db.query(`select status, generation from public.items where id = '${it2}'`)).rows[0];
 check('refused claim leaves the item alone', st.status === 'ready' && st.generation === 5, st);
 await db.exec('reset role');
+
+// Deleting files
+await db.exec(`reset role`);
+await db.exec(`insert into storage.objects (bucket_id, name) values ('items', '${A}/x/g1/cutout.png'), ('items', '${B}/y/g1/cutout.png')`);
+r = await as(B, `delete from storage.objects where name like '${A}/%' returning name`);
+check("B cannot delete A's files", r.ok && r.ok.length === 0, r);
+r = await as(A, `delete from storage.objects where name = '${A}/x/g1/cutout.png' returning name`);
+check('A deletes own files', r.ok && r.ok.length === 1, r);

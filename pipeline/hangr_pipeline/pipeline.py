@@ -41,6 +41,22 @@ def _fidelity_method(cfg: PipelineConfig) -> str:
     return cfg.fidelity_method
 
 
+# A colorkey matte covering less or more of the image than this means the
+# background wasn't plain after all; the model then cuts the image out instead.
+_COLORKEY_COVERAGE = (0.02, 0.95)
+
+
+def _enhanced_alpha(image: Image.Image, cfg: PipelineConfig) -> np.ndarray:
+    """Background removal for an image the enhance step generated."""
+    alpha = cutout.alpha_mask(image, replace(cfg, cutout_method=cfg.enhanced_cutout_method))
+    low, high = _COLORKEY_COVERAGE
+    if cfg.enhanced_cutout_method == "colorkey" and not low <= float(alpha.mean()) <= high:
+        log.warning("colorkey cutout looks wrong (coverage %.2f); using %s",
+                    alpha.mean(), cfg.cutout_method)
+        return cutout.alpha_mask(image, cfg)
+    return alpha
+
+
 def load_models(cfg: PipelineConfig) -> None:
     """Load ML models up front so the first item isn't slow."""
     cutout.load_models(cfg)
@@ -111,7 +127,7 @@ def process(
             try:
                 raw = timed("enhance", enhance, original, cfg, feedback)
                 enhanced = normalize(raw, cfg.max_input_size)
-                e_alpha = timed("cutout", cutout.alpha_mask, enhanced, cfg)
+                e_alpha = timed("cutout", _enhanced_alpha, enhanced, cfg)
                 e_cut = timed("frame", cutout.frame, enhanced, e_alpha, cfg)
             except Exception as exc:  # network, provider refusal, empty result...
                 log.warning("enhance attempt failed: %s", exc)
