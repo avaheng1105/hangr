@@ -296,3 +296,38 @@ def test_clean_note_trims_and_caps():
     assert pipeline.clean_note("   \n ") is None
     assert pipeline.clean_note("a\n  b") == "a b"
     assert len(pipeline.clean_note("x" * 500)) == pipeline.NOTE_MAX_CHARS
+
+
+def _count_model_cutouts(monkeypatch) -> list:
+    calls = []
+    real = pipeline.cutout.alpha_mask
+
+    def alpha_mask(image, cfg):
+        if cfg.cutout_method == "model":  # stand in for BiRefNet: a centred box
+            calls.append(image.size)
+            w, h = image.size
+            alpha = np.zeros((h, w), np.float32)
+            alpha[h // 4: 3 * h // 4, w // 4: 3 * w // 4] = 1
+            return alpha
+        return real(image, cfg)
+
+    monkeypatch.setattr(pipeline.cutout, "alpha_mask", alpha_mask)
+    return calls
+
+
+def test_generated_image_is_cut_out_without_the_model(photo, monkeypatch):
+    model_calls = _count_model_cutouts(monkeypatch)
+    monkeypatch.setattr(pipeline, "enhance", lambda image, cfg, feedback=None: image.copy())
+    monkeypatch.setattr(fidelity, "judge_gemini", lambda o, e, cfg: Verdict(9, []))
+    result = process(photo, no_ml(enhance_provider="gemini", cutout_method="model", output_size=256))
+    assert result.meta["enhance"]["used"] is True
+    assert model_calls == []
+
+
+def test_generated_image_without_a_plain_background_uses_the_model(photo, monkeypatch):
+    model_calls = _count_model_cutouts(monkeypatch)
+    noise = Image.fromarray(np.random.default_rng(0).integers(0, 255, (SIZE, SIZE, 3), np.uint8))
+    monkeypatch.setattr(pipeline, "enhance", lambda image, cfg, feedback=None: noise)
+    monkeypatch.setattr(fidelity, "judge_gemini", lambda o, e, cfg: Verdict(9, []))
+    process(photo, no_ml(enhance_provider="gemini", cutout_method="model", output_size=256))
+    assert len(model_calls) == 1

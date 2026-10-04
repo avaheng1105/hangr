@@ -67,6 +67,13 @@ class PipelineConfig:
         default_factory=lambda: _env("CUTOUT_METHOD", "model")  # type: ignore[return-value]
     )
     rembg_model: str = "birefnet-general"
+    # How to cut out the enhance step's output. The image model draws the
+    # item on a plain background (see enhance.pick_background), so colorkey
+    # is enough and takes well under a second, where BiRefNet takes about a
+    # minute on a CPU worker. BiRefNet is still used for the user's own photo.
+    enhanced_cutout_method: CutoutMethod = field(
+        default_factory=lambda: _env("ENHANCED_CUTOUT_METHOD", "colorkey")  # type: ignore[return-value]
+    )
 
     # Output sizes.
     max_input_size: int = 2048

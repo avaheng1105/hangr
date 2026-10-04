@@ -71,7 +71,10 @@ class Pipeline:
         from hangr_pipeline import PipelineConfig, load_models
 
         self.cfg = PipelineConfig(cutout_method="model")
-        load_models(self.cfg)
+        # On CPU, BiRefNet is only needed for flagged items (the photo
+        # cutout), so it loads on first use rather than slowing every start.
+        if GPU:
+            load_models(self.cfg)
 
     @modal.method()
     def process(self, photo: bytes, enhance_provider: str = "none", category: str = "auto") -> dict:
