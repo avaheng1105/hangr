@@ -59,6 +59,9 @@ def similarity(
 class Verdict:
     score: int  # 1-10, how faithfully the enhanced image shows the item
     issues: list[str] = field(default_factory=list)  # concrete differences
+    # Whether the image follows the house style (see check_style). Its
+    # problems are in `issues` too, so a retry fixes them.
+    style_ok: bool = True
 
 
 _JUDGE_PROMPT = """\
@@ -90,25 +93,23 @@ should flare out from the knee". Leave the list empty if there are none.
 _JUDGE_SIZE = 1024
 
 
-def judge_gemini(original: Image.Image, enhanced: Image.Image, cfg: PipelineConfig) -> Verdict:
+def _image_part(image: Image.Image):
+    from google.genai import types
+
+    image = image.convert("RGB")
+    image.thumbnail((_JUDGE_SIZE, _JUDGE_SIZE), Image.Resampling.LANCZOS)
+    return types.Part.from_bytes(data=to_png_bytes(image), mime_type="image/png")
+
+
+def _ask_gemini(contents: list, schema, cfg: PipelineConfig):
+    """One structured-output call to the judge model, retrying transient errors."""
     from google import genai
     from google.genai import types
-    from pydantic import BaseModel
-
-    class _Schema(BaseModel):
-        score: int
-        issues: list[str]
-
-    def part(image: Image.Image):
-        image = image.convert("RGB")
-        image.thumbnail((_JUDGE_SIZE, _JUDGE_SIZE), Image.Resampling.LANCZOS)
-        return types.Part.from_bytes(data=to_png_bytes(image), mime_type="image/png")
 
     client = genai.Client()
-    contents = [part(original), part(enhanced), _JUDGE_PROMPT]
     config = types.GenerateContentConfig(
         response_mime_type="application/json",
-        response_schema=_Schema,
+        response_schema=schema,
         temperature=0,
     )
     for attempt in range(1 + cfg.judge_retries):
@@ -124,9 +125,57 @@ def judge_gemini(original: Image.Image, enhanced: Image.Image, cfg: PipelineConf
             log.warning("judge call failed (%s), retrying in %.0fs", exc, delay)
             time.sleep(delay)
     parsed = response.parsed
-    if not isinstance(parsed, _Schema):
+    if not isinstance(parsed, schema):
         raise RuntimeError(f"judge returned no verdict: {response.text!r}")
+    return parsed
+
+
+def judge_gemini(original: Image.Image, enhanced: Image.Image, cfg: PipelineConfig) -> Verdict:
+    from pydantic import BaseModel
+
+    class _Schema(BaseModel):
+        score: int
+        issues: list[str]
+
+    parsed = _ask_gemini([_image_part(original), _image_part(enhanced), _JUDGE_PROMPT], _Schema, cfg)
     return Verdict(score=max(1, min(10, parsed.score)), issues=parsed.issues)
+
+
+_STYLE_PROMPT = """\
+The image is an AI-generated product shot of an item for a clothing shop.
+- looks_flat: true if it shows clothing (a top, jacket, dress, trousers,
+  shorts or skirt) that looks flat, as in a flat lay or a garment lying on a
+  surface, rather than filled out by an invisible body. Always false for
+  shoes, bags and accessories.
+- cut_off: true if part of the item is cut off by the edge of the image.
+- extra_objects: true if there is a person, a hanger, a visible mannequin,
+  props or added text in the image.
+"""
+
+# What to tell the image model for each failed style rule.
+_STYLE_FIXES = {
+    "looks_flat": "Show the garment filled out by an invisible mannequin, not lying flat",
+    "cut_off": "Show the whole item, with nothing cut off by the edge of the image",
+    "extra_objects": "Show only the item: no person, hanger, mannequin, props or text",
+}
+
+
+def check_style(enhanced: Image.Image, cfg: PipelineConfig) -> list[str]:
+    """Whether a product shot follows the house style, so every item in the
+    closet looks the same way. Returns what to fix (empty if nothing).
+
+    A separate call on the generated image alone: asked alongside the
+    comparison with the photo (itself often a flat lay), the judge passed
+    flat shots."""
+    from pydantic import BaseModel
+
+    class _Schema(BaseModel):
+        looks_flat: bool
+        cut_off: bool
+        extra_objects: bool
+
+    parsed = _ask_gemini([_image_part(enhanced), _STYLE_PROMPT], _Schema, cfg)
+    return [fix for key, fix in _STYLE_FIXES.items() if getattr(parsed, key)]
 
 
 # Rate limits and server-side failures usually clear within seconds.

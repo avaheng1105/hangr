@@ -1,7 +1,7 @@
 import type { ImageSourcePropType } from 'react-native';
 
 // Why the pipeline flagged an item (meta.json -> enhance.review_reason).
-export type ReviewReason = 'low_score' | 'judge_failed';
+export type ReviewReason = 'low_score' | 'judge_failed' | 'style';
 
 // What the user did on the review screen.
 export type ReviewResolution = 'kept' | 'photo';
@@ -61,6 +61,9 @@ export function judgeIssues(item: Item): string[] {
 }
 
 export function reviewMessage(reason: ReviewReason | undefined): string {
+  if (reason === 'style') {
+    return "This image matches your photo but isn't shown like the rest of your closet. Check the notes below.";
+  }
   if (reason === 'judge_failed') {
     return "We couldn't check this image against your photo. Take a look to make sure it's the same item.";
   }
