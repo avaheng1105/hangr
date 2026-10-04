@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 
 import { closet, type ItemChanges } from './closet';
 import type { Item, ReviewResolution } from './items';
-import { outfits as outfitStore, type Outfit, type OutfitDraft } from './outfits';
+import { outfits as outfitStore, type Outfit, type OutfitDraft, type Placement } from './outfits';
 
 // How often to check on items the pipeline is still working on.
 const POLL_MS = 4000;
@@ -24,6 +24,7 @@ type ClosetState = {
   outfits: Outfit[];
   saveOutfit(draft: OutfitDraft): Promise<Outfit>;
   removeOutfit(id: string): Promise<void>;
+  saveLayout(id: string, layout: Record<string, Placement>): Promise<void>;
 };
 
 const ClosetContext = createContext<ClosetState | null>(null);
@@ -127,6 +128,11 @@ export function ClosetProvider({ children }: { children: React.ReactNode }) {
       async removeOutfit(id) {
         await outfitStore.remove(id);
         setOutfits((current) => current.filter((o) => o.id !== id));
+      },
+
+      async saveLayout(id, layout) {
+        await outfitStore.saveLayout(id, layout);
+        setOutfits((current) => current.map((o) => (o.id === id ? { ...o, layout } : o)));
       },
     };
   }, [items, message, adding, outfits, refresh]);

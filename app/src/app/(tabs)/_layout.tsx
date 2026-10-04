@@ -20,7 +20,9 @@ export default function TabsLayout() {
         options={{
           title: 'My Wardrobe',
           tabBarLabel: 'Wardrobe',
-          tabBarIcon: ({ color, size }) => <Ionicons name="shirt-outline" color={color} size={size} />,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="shirt-outline" color={color} size={size} />
+          ),
         }}
       />
       <Tabs.Screen

@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useCloset } from '../../ClosetContext';
+import { CanvasPreview } from '../../CanvasPreview';
 import { OutfitCollage } from '../../OutfitCollage';
 import { colors } from '../../theme';
 
@@ -40,7 +41,11 @@ export default function OutfitsScreen() {
             onPress={() => router.push(`/outfit/${outfit.id}`)}
             accessibilityLabel={`${name}, ${outfitItems.length} items`}
           >
-            <OutfitCollage items={outfitItems} />
+            {Object.keys(outfit.layout).length > 0 ? (
+              <CanvasPreview items={outfitItems} layout={outfit.layout} />
+            ) : (
+              <OutfitCollage items={outfitItems} />
+            )}
             <Text style={styles.name} numberOfLines={1}>
               {name}
             </Text>

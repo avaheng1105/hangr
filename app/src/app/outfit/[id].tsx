@@ -92,7 +92,7 @@ function Editor({ outfit }: { outfit?: Outfit }) {
         setError(`Couldn't delete: ${errorMessage(e)}`);
       }
     };
-    const question = "Delete this outfit? Its items stay in your wardrobe.";
+    const question = 'Delete this outfit? Its items stay in your wardrobe.';
     if (Platform.OS === 'web') {
       if (window.confirm(question)) void doDelete();
       return;
@@ -179,9 +179,22 @@ function Editor({ outfit }: { outfit?: Outfit }) {
           disabled={saving || chosen.length === 0}
           accessibilityRole="button"
         >
-          {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryText}>Save outfit</Text>}
+          {saving ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={styles.primaryText}>Save outfit</Text>
+          )}
         </Pressable>
         {error && <Text style={styles.error}>{error}</Text>}
+        {outfit && (
+          <Pressable
+            style={styles.button}
+            onPress={() => router.push(`/canvas/${outfit.id}`)}
+            accessibilityRole="button"
+          >
+            <Text style={styles.canvasText}>Style on canvas</Text>
+          </Pressable>
+        )}
         {outfit && (
           <Pressable style={styles.button} onPress={confirmDelete} accessibilityRole="button">
             <Text style={styles.deleteText}>Delete outfit</Text>
@@ -232,6 +245,7 @@ const styles = StyleSheet.create({
   primary: { backgroundColor: colors.accent, borderColor: colors.accent },
   dim: { opacity: 0.5 },
   primaryText: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
+  canvasText: { fontSize: 15, fontWeight: '600', color: colors.accent },
   deleteText: { fontSize: 15, fontWeight: '600', color: colors.danger },
   error: { fontSize: 14, color: colors.danger },
 });

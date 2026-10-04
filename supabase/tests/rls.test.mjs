@@ -140,3 +140,18 @@ r = await as(A, `select * from public.outfit_items where outfit_id = '${outfit}'
 check('deleting an item takes it out of outfits', r.ok && r.ok.length === 0, r);
 r = await as(A, `delete from public.outfits where id = '${outfit}' returning id`);
 check('A deletes own outfit', r.ok && r.ok.length === 1, r);
+
+// Canvas layout
+r = await as(A, `insert into public.items (category) values ('top') returning id`);
+const cItem = r.ok[0].id;
+r = await as(A, `insert into public.outfits (name) values ('Canvas') returning id`);
+const cOutfit = r.ok[0].id;
+r = await as(A, `insert into public.outfit_items (outfit_id, item_id, position) values ('${cOutfit}', '${cItem}', 0)`);
+r = await as(A, `update public.outfit_items set x = 0.4, y = 0.3, scale = 0.5, z = 2 where outfit_id = '${cOutfit}' returning x, z`);
+check('A places an item on the canvas', r.ok && r.ok[0]?.z === 2, r);
+r = await as(A, `update public.outfit_items set x = 3 where outfit_id = '${cOutfit}'`);
+check('a position off the board is refused', !!r.err, r);
+r = await as(B, `update public.outfit_items set x = 0.1 where outfit_id = '${cOutfit}' returning x`);
+check("B cannot move A's canvas items", r.ok && r.ok.length === 0, r);
+r = await as(A, `insert into public.outfit_items (outfit_id, item_id, position) values ('${cOutfit}', '${cItem}', 1) on conflict (outfit_id, item_id) do update set position = excluded.position returning x, position`);
+check('re-saving the outfit keeps the placement', r.ok && r.ok[0]?.position === 1 && Math.abs(r.ok[0].x - 0.4) < 1e-6, r);

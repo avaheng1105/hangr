@@ -20,6 +20,7 @@ export default function RootLayout() {
         <Stack.Screen name="item/[id]" options={{ title: '' }} />
         <Stack.Screen name="outfit/[id]" options={{ title: '' }} />
         <Stack.Screen name="shuffle" options={{ title: 'Shuffle' }} />
+        <Stack.Screen name="canvas/[id]" options={{ title: '' }} />
       </Stack>
       <StatusBar style="dark" />
     </ClosetProvider>

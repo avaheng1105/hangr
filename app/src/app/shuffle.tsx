@@ -21,7 +21,12 @@ export default function Shuffle() {
 
   const shuffle = () => {
     setError(null);
-    setOutfit(shuffleOutfit(items, outfit.filter((item) => locked.includes(item.id))));
+    setOutfit(
+      shuffleOutfit(
+        items,
+        outfit.filter((item) => locked.includes(item.id)),
+      ),
+    );
   };
 
   const toggleLock = (item: Item) =>
@@ -48,8 +53,8 @@ export default function Shuffle() {
     return (
       <View style={styles.centred}>
         <Text style={styles.muted}>
-          Add a top and a bottom, or a dress, to your wardrobe to shuffle outfits. Items need
-          their type set.
+          Add a top and a bottom, or a dress, to your wardrobe to shuffle outfits. Items need their
+          type set.
         </Text>
       </View>
     );
@@ -82,7 +87,11 @@ export default function Shuffle() {
         {error && <Text style={styles.error}>{error}</Text>}
       </ScrollView>
       <View style={styles.actions}>
-        <Pressable style={[styles.button, styles.primary]} onPress={shuffle} accessibilityRole="button">
+        <Pressable
+          style={[styles.button, styles.primary]}
+          onPress={shuffle}
+          accessibilityRole="button"
+        >
           <Ionicons name="shuffle" size={18} color="#FFFFFF" />
           <Text style={styles.primaryText}>Shuffle</Text>
         </Pressable>

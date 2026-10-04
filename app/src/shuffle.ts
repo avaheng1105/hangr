@@ -37,7 +37,9 @@ export function shuffleOutfit(
   // Dress or separates, in proportion to how many of each there are.
   const dress =
     lockedDress ||
-    (!lockedSeparate && dresses.length > 0 && random() < dresses.length / (dresses.length + separates));
+    (!lockedSeparate &&
+      dresses.length > 0 &&
+      random() < dresses.length / (dresses.length + separates));
   if (dress) {
     add(['dress']);
   } else {
