@@ -155,3 +155,20 @@ r = await as(B, `update public.outfit_items set x = 0.1 where outfit_id = '${cOu
 check("B cannot move A's canvas items", r.ok && r.ok.length === 0, r);
 r = await as(A, `insert into public.outfit_items (outfit_id, item_id, position) values ('${cOutfit}', '${cItem}', 1) on conflict (outfit_id, item_id) do update set position = excluded.position returning x, position`);
 check('re-saving the outfit keeps the placement', r.ok && r.ok[0]?.position === 1 && Math.abs(r.ok[0].x - 0.4) < 1e-6, r);
+
+// Calendar
+r = await as(A, `insert into public.outfits (name) values ('Day') returning id`);
+const dOutfit = r.ok[0].id;
+r = await as(B, `insert into public.outfits (name) values ('B day') returning id`);
+const bOutfit = r.ok[0].id;
+r = await as(A, `insert into public.outfit_days (day, outfit_id) values ('2026-10-05', '${dOutfit}') returning user_id`);
+check('A plans an outfit for a day', r.ok && r.ok[0]?.user_id === A, r);
+r = await as(A, `insert into public.outfit_days (day, outfit_id) values ('2026-10-06', '${bOutfit}')`);
+check("A cannot put B's outfit on the calendar", !!r.err, r);
+r = await as(A, `insert into public.outfit_days (day, outfit_id) values ('2026-10-05', '${dOutfit}') on conflict (user_id, day) do update set outfit_id = excluded.outfit_id returning day`);
+check('A changes the outfit for a day', r.ok && r.ok.length === 1, r);
+r = await as(B, `select * from public.outfit_days`);
+check("B cannot see A's calendar", r.ok && r.ok.length === 0, r);
+r = await as(A, `delete from public.outfits where id = '${dOutfit}'`);
+r = await as(A, `select * from public.outfit_days`);
+check('deleting an outfit clears its days', r.ok && r.ok.length === 0, r);

@@ -1,6 +1,7 @@
 import * as ImagePicker from 'expo-image-picker';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
+import { calendar, type OutfitDays } from './calendar';
 import { closet, type ItemChanges } from './closet';
 import type { Item, ReviewResolution } from './items';
 import { outfits as outfitStore, type Outfit, type OutfitDraft, type Placement } from './outfits';
@@ -25,6 +26,8 @@ type ClosetState = {
   saveOutfit(draft: OutfitDraft): Promise<Outfit>;
   removeOutfit(id: string): Promise<void>;
   saveLayout(id: string, layout: Record<string, Placement>): Promise<void>;
+  days: OutfitDays;
+  setDay(day: string, outfitId: string | null): Promise<void>;
 };
 
 const ClosetContext = createContext<ClosetState | null>(null);
@@ -35,6 +38,7 @@ export function ClosetProvider({ children }: { children: React.ReactNode }) {
   const [message, setMessage] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [outfits, setOutfits] = useState<Outfit[]>([]);
+  const [days, setDays] = useState<OutfitDays>({});
 
   const refresh = useCallback(async () => {
     try {
@@ -52,7 +56,11 @@ export function ClosetProvider({ children }: { children: React.ReactNode }) {
         setItems(loaded);
         return outfitStore.load();
       })
-      .then(setOutfits)
+      .then((loaded) => {
+        setOutfits(loaded);
+        return calendar.load();
+      })
+      .then(setDays)
       .catch((e) => setMessage(`Couldn't load your closet: ${errorMessage(e)}`));
   }, []);
 
@@ -128,14 +136,30 @@ export function ClosetProvider({ children }: { children: React.ReactNode }) {
       async removeOutfit(id) {
         await outfitStore.remove(id);
         setOutfits((current) => current.filter((o) => o.id !== id));
+        // The database clears its days too.
+        setDays((current) =>
+          Object.fromEntries(Object.entries(current).filter(([, outfitId]) => outfitId !== id)),
+        );
       },
 
       async saveLayout(id, layout) {
         await outfitStore.saveLayout(id, layout);
         setOutfits((current) => current.map((o) => (o.id === id ? { ...o, layout } : o)));
       },
+
+      days,
+
+      async setDay(day, outfitId) {
+        await calendar.set(day, outfitId);
+        setDays((current) => {
+          const next = { ...current };
+          if (outfitId) next[day] = outfitId;
+          else delete next[day];
+          return next;
+        });
+      },
     };
-  }, [items, message, adding, outfits, refresh]);
+  }, [items, message, adding, outfits, days, refresh]);
 
   return <ClosetContext.Provider value={state}>{children}</ClosetContext.Provider>;
 }
