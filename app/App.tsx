@@ -54,18 +54,30 @@ export default function App() {
     const picked = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       quality: 0.8,
+      base64: true,
+      // iPhone photos are HEIC by default; ask for JPEG, which the pipeline reads.
+      preferredAssetRepresentationMode:
+        ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
     });
     if (picked.canceled) return;
     setAdding(true);
     setMessage(null);
     try {
-      const photo = picked.assets[0];
-      await closet.add(photo.uri, photo.mimeType ?? undefined);
+      await closet.add(picked.assets[0]);
       await refresh();
     } catch (e) {
       setMessage(`Couldn't add that photo: ${errorMessage(e)}`);
     } finally {
       setAdding(false);
+    }
+  };
+
+  const remove = async (item: Item) => {
+    try {
+      await closet.remove(item);
+      setItems((current) => current.filter((i) => i.id !== item.id));
+    } catch (e) {
+      setMessage(`Couldn't remove that item: ${errorMessage(e)}`);
     }
   };
 
@@ -95,7 +107,12 @@ export default function App() {
             </Pressable>
           )}
           {items.map((item) => (
-            <Tile key={item.id} item={item} onReview={() => setReviewingId(item.id)} />
+            <Tile
+              key={item.id}
+              item={item}
+              onReview={() => setReviewingId(item.id)}
+              onRemove={() => void remove(item)}
+            />
           ))}
         </ScrollView>
         <ReviewSheet
@@ -110,7 +127,15 @@ export default function App() {
   );
 }
 
-function Tile({ item, onReview }: { item: Item; onReview: () => void }) {
+function Tile({
+  item,
+  onReview,
+  onRemove,
+}: {
+  item: Item;
+  onReview: () => void;
+  onRemove: () => void;
+}) {
   const flagged = needsReview(item);
   const working = item.status === 'uploading' || item.status === 'processing';
   // A new item has no image until its first run finishes.
@@ -126,7 +151,7 @@ function Tile({ item, onReview }: { item: Item; onReview: () => void }) {
   return (
     <Pressable
       style={styles.tile}
-      onPress={flagged ? onReview : undefined}
+      onPress={flagged ? onReview : item.status === 'failed' ? onRemove : undefined}
       accessibilityLabel={label}
     >
       {hasImage && <Image source={displayThumb(item)} style={styles.image} resizeMode="contain" />}
@@ -139,6 +164,8 @@ function Tile({ item, onReview }: { item: Item; onReview: () => void }) {
       {item.status === 'failed' && (
         <View style={styles.overlay}>
           <Text style={styles.overlayText}>Couldn&apos;t process this photo</Text>
+          {item.error && <Text style={styles.overlayDetail}>{item.error}</Text>}
+          <Text style={styles.overlayDetail}>Tap to remove</Text>
         </View>
       )}
       {flagged && (
@@ -191,6 +218,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.7)',
     borderRadius: 8,
   },
+  overlayDetail: { fontSize: 12, color: '#6B6F7E', textAlign: 'center' },
   overlayText: { fontSize: 13, color: '#4A4E5C', textAlign: 'center' },
   badge: {
     position: 'absolute',

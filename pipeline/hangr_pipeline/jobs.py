@@ -16,6 +16,8 @@ from __future__ import annotations
 import logging
 from dataclasses import replace
 
+from PIL import UnidentifiedImageError
+
 from .config import PipelineConfig
 from .pipeline import process, regenerate
 from .store import SupabaseStore
@@ -66,7 +68,11 @@ def run_job(job: dict, cfg: PipelineConfig, store: SupabaseStore) -> None:
         log.exception("job %s failed", job)
         # A failed regenerate leaves the previous image in place.
         status = "failed" if job["type"] == "process" else "ready"
-        store.update_item(item_id, status=status, error=str(exc)[:500])
+        if isinstance(exc, UnidentifiedImageError):
+            message = "The file wasn't a photo the app could read."
+        else:
+            message = str(exc)[:500]
+        store.update_item(item_id, status=status, error=message)
         return
     stale = [p for p in old.values() if p not in paths.values()]
     if job["type"] == "process":
