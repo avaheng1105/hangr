@@ -1,14 +1,13 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { useCloset } from '../../ClosetContext';
-import { CanvasPreview } from '../../CanvasPreview';
-import { OutfitCollage } from '../../OutfitCollage';
-import { colors } from '../../theme';
+import { useCloset } from './ClosetContext';
+import { CanvasPreview } from './CanvasPreview';
+import { OutfitCollage } from './OutfitCollage';
+import { colors } from './theme';
 
 // The user's saved outfits.
-export default function OutfitsScreen() {
+export function OutfitsGrid() {
   const { outfits, items } = useCloset();
   const byId = new Map(items.map((item) => [item.id, item]));
 
@@ -21,15 +20,6 @@ export default function OutfitsScreen() {
         accessibilityLabel="New outfit"
       >
         <Text style={styles.newText}>+ New outfit</Text>
-      </Pressable>
-      <Pressable
-        style={[styles.card, styles.newCard]}
-        onPress={() => router.push('/shuffle')}
-        accessibilityRole="button"
-        accessibilityLabel="Shuffle an outfit"
-      >
-        <Ionicons name="shuffle" size={28} color={colors.accent} />
-        <Text style={styles.newText}>Shuffle</Text>
       </Pressable>
       {outfits.map((outfit) => {
         const outfitItems = outfit.itemIds.flatMap((id) => byId.get(id) ?? []);
@@ -67,7 +57,7 @@ export default function OutfitsScreen() {
 }
 
 const styles = StyleSheet.create({
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 16, paddingTop: 0 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 16 },
   card: { width: '48%', gap: 4 },
   newCard: {
     aspectRatio: 1,
