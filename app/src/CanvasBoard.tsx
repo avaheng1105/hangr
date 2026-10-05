@@ -21,6 +21,9 @@ const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e)
 // The board is 4:5, like a phone photo.
 const BOARD_RATIO = 0.8;
 const SCALE_STEP = 1.15;
+// How small and large an item can be, as a share of the board's width.
+const MIN_SCALE = 0.08;
+const MAX_SCALE = 1.2;
 
 // Style an outfit on a board: drag items into place, resize them and change
 // which sits on top.
@@ -52,7 +55,7 @@ export function CanvasBoard(props: {
 
   const resize = (factor: number) => {
     if (!selected) return;
-    place(selected, { scale: clamp(layout[selected].scale * factor, 0.08, 1.2) });
+    place(selected, { scale: clamp(layout[selected].scale * factor, MIN_SCALE, MAX_SCALE) });
   };
 
   const sendBack = () => {
@@ -88,14 +91,16 @@ export function CanvasBoard(props: {
                 board={{ width, height }}
                 selected={selected === item.id}
                 onGrab={() => select(item.id)}
-                onMove={(x, y) => place(item.id, { x, y })}
+                onChange={(changes) => place(item.id, changes)}
               />
             ))}
         </View>
       </View>
 
       <Text style={styles.hint}>
-        {selected ? 'Drag to move it, or use the buttons below.' : 'Tap an item to pick it up.'}
+        {selected
+          ? 'Drag to move it, pinch with two fingers to resize it.'
+          : 'Tap an item to pick it up.'}
       </Text>
       <View style={styles.tools}>
         <Tool
@@ -134,28 +139,51 @@ function Piece(props: {
   board: { width: number; height: number };
   selected: boolean;
   onGrab: () => void;
-  onMove: (x: number, y: number) => void;
+  onChange: (changes: Partial<Placement>) => void;
 }) {
   const { item, placement, board, selected } = props;
-  // Where the drag started: the item (as board fractions) and the finger
-  // (page coordinates). Moves are measured from the finger's page position
-  // because the responder below is rebuilt every render, which resets its
-  // own gesture state.
-  const [start, setStart] = useState({ x: 0, y: 0, pageX: 0, pageY: 0 });
+  // Where the gesture started: the item (as board fractions and scale) and
+  // the finger (page coordinates), plus the gap between two fingers while
+  // pinching (0 otherwise). Moves are measured from page positions because
+  // the responder below is rebuilt every render, which resets its own
+  // gesture state.
+  const [start, setStart] = useState({ x: 0, y: 0, pageX: 0, pageY: 0, gap: 0, scale: 1 });
   const size = placement.scale * board.width;
+  const restart = (pageX: number, pageY: number, gap: number) =>
+    setStart({ x: placement.x, y: placement.y, pageX, pageY, gap, scale: placement.scale });
   const responder = PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
+    // Keep the gesture when a second finger lands.
+    onPanResponderTerminationRequest: () => false,
     onPanResponderGrant: (event) => {
-      const { pageX, pageY } = event.nativeEvent;
-      setStart({ x: placement.x, y: placement.y, pageX, pageY });
+      restart(event.nativeEvent.pageX, event.nativeEvent.pageY, 0);
       props.onGrab();
     },
-    onPanResponderMove: (event) =>
-      props.onMove(
-        clamp(start.x + (event.nativeEvent.pageX - start.pageX) / board.width, 0, 1),
-        clamp(start.y + (event.nativeEvent.pageY - start.pageY) / board.height, 0, 1),
-      ),
+    onPanResponderMove: (event) => {
+      const { touches, pageX, pageY } = event.nativeEvent;
+      if (touches.length >= 2) {
+        // Two fingers: pinch to resize.
+        const gap = Math.hypot(
+          touches[0].pageX - touches[1].pageX,
+          touches[0].pageY - touches[1].pageY,
+        );
+        if (start.gap === 0) restart(pageX, pageY, gap);
+        else if (gap > 0) {
+          props.onChange({ scale: clamp(start.scale * (gap / start.gap), MIN_SCALE, MAX_SCALE) });
+        }
+        return;
+      }
+      // Back to one finger after a pinch: carry on dragging from here.
+      if (start.gap !== 0) {
+        restart(pageX, pageY, 0);
+        return;
+      }
+      props.onChange({
+        x: clamp(start.x + (pageX - start.pageX) / board.width, 0, 1),
+        y: clamp(start.y + (pageY - start.pageY) / board.height, 0, 1),
+      });
+    },
   });
 
   return (
