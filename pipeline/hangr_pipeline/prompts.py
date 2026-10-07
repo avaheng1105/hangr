@@ -13,7 +13,7 @@ each processed item so old items can be found and re-run.
 
 from __future__ import annotations
 
-ENHANCE_PROMPT_VERSION = "v4"
+ENHANCE_PROMPT_VERSION = "v5"
 
 _INTRO = "Turn this photo into a clean, high-end e-commerce product image of the same item."
 
@@ -71,16 +71,26 @@ _STYLES: dict[str, str] = {
   laid straight, glasses unfolded and facing forward.""",
 }
 
+_AUTO_GROUPS = (
+    ("Tops (t-shirts, shirts, blouses, knitwear)", "top"),
+    ("Jackets and coats", "outerwear"),
+    ("Dresses and jumpsuits", "dress"),
+    ("Trousers, jeans and shorts", "bottom"),
+    ("Skirts", "skirt"),
+    ("Shoes", "shoes"),
+    ("Bags", "bag"),
+    ("Jewellery", "jewelry"),
+    ("Other accessories", "accessory"),
+)
+
+# With no category given, the model picks the matching block itself. Each
+# block is the full per-category text: a one-line summary of ghost mannequin
+# styling was too weak, and tops came back as flat product shots.
 _AUTO = (
-    "First identify what the item is, then style it as follows.\n"
-    "- Clothing (tops, jackets, dresses, trousers, skirts): show it as if worn by an "
-    "invisible mannequin (ghost mannequin photography) with realistic body-shaped 3D "
-    "volume and natural drape, front view, sleeves and legs hanging naturally, and the "
-    "inside of the back neckline or waistband visible through the opening. Skirts "
-    "have no legs or shorts underneath unless the photo shows built-in shorts.\n"
-    "- Shoes: the pair side by side, three-quarter front view, filled out and new-looking.\n"
-    "- Bags: upright, front view, full structured shape, straps arranged neatly.\n"
-    "- Jewellery and other accessories: clean centred product shot, front view."
+    "First identify what kind of item this is, then follow only the styling rules"
+    " for that kind of item. Clothing must look three-dimensional, as if worn:"
+    " never a flat lay or a garment lying flat.\n\n"
+    + "\n\n".join(f"{name}:\n{_STYLES[key]}" for name, key in _AUTO_GROUPS)
 )
 
 _RULES = """\
@@ -102,6 +112,20 @@ _RULES = """\
 - Photorealistic, sharp, high resolution, like a fashion retailer's product page."""
 
 CATEGORIES = (*_STYLES, "auto")
+
+# The app's wardrobe subcategories (app/src/items.ts SECTIONS) and the
+# category each one belongs to.
+SUBCATEGORIES = {
+    **dict.fromkeys(("tshirt", "shirt", "blouse", "sleeveless", "sweater", "hoodie"), "top"),
+    **dict.fromkeys(("jacket", "coat", "blazer", "cardigan"), "outerwear"),
+    **dict.fromkeys(("jeans", "trousers", "shorts", "leggings"), "bottom"),
+    "skirt": "skirt",
+    **dict.fromkeys(("mini_dress", "midi_dress", "maxi_dress", "jumpsuit"), "dress"),
+    **dict.fromkeys(("sneakers", "heels", "flats", "boots", "sandals"), "shoes"),
+    **dict.fromkeys(("handbag", "shoulder_bag", "tote", "backpack", "clutch"), "bag"),
+    **dict.fromkeys(("hat", "belt", "scarf", "sunglasses", "hair_accessory"), "accessory"),
+    **dict.fromkeys(("necklace", "earrings", "bracelet", "ring", "watch"), "jewelry"),
+}
 
 
 LIGHT_BACKGROUND = "light grey (#EEEEEE)"

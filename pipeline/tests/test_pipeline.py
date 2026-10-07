@@ -331,3 +331,51 @@ def test_generated_image_without_a_plain_background_uses_the_model(photo, monkey
     monkeypatch.setattr(fidelity, "judge_gemini", lambda o, e, cfg: Verdict(9, []))
     process(photo, no_ml(enhance_provider="gemini", cutout_method="model", output_size=256))
     assert len(model_calls) == 1
+
+
+def test_off_style_image_is_retried_with_the_style_fix(photo, monkeypatch):
+    seen = []
+
+    def fake_enhance(image, cfg, feedback=None):
+        seen.append(feedback)
+        return image.copy()
+
+    styles = iter([["show it on a mannequin"], []])
+    monkeypatch.setattr(pipeline, "enhance", fake_enhance)
+    monkeypatch.setattr(fidelity, "judge_gemini", lambda o, e, cfg: Verdict(9, []))
+    monkeypatch.setattr(fidelity, "check_style", lambda e, cfg: next(styles))
+    result = process(photo, no_ml(enhance_provider="gemini", output_size=256))
+    assert seen == [None, ["show it on a mannequin"]]
+    assert result.meta["enhance"]["attempts"][0]["style_ok"] is False
+    assert result.meta["enhance"]["used"] is True
+    assert "needs_review" not in result.meta["enhance"]
+
+
+def test_image_that_stays_off_style_is_flagged_for_style(photo, monkeypatch):
+    monkeypatch.setattr(pipeline, "enhance", lambda image, cfg, feedback=None: image.copy())
+    monkeypatch.setattr(fidelity, "judge_gemini", lambda o, e, cfg: Verdict(9, []))
+    monkeypatch.setattr(fidelity, "check_style", lambda e, cfg: ["not flat"])
+    result = process(photo, no_ml(enhance_provider="gemini", output_size=256))
+    assert result.meta["enhance"]["needs_review"] is True
+    assert result.meta["enhance"]["review_reason"] == "style"
+
+
+def test_style_is_only_checked_on_images_that_pass_the_judge(photo, monkeypatch):
+    checked = []
+    monkeypatch.setattr(pipeline, "enhance", lambda image, cfg, feedback=None: image.copy())
+    monkeypatch.setattr(fidelity, "judge_gemini", lambda o, e, cfg: Verdict(5, ["wrong print"]))
+    monkeypatch.setattr(fidelity, "check_style", lambda e, cfg: checked.append(e) or [])
+    process(photo, no_ml(enhance_provider="gemini", output_size=256))
+    assert checked == []
+
+
+def test_a_failed_style_check_does_not_block_the_image(photo, monkeypatch):
+    def down(e, cfg):
+        raise RuntimeError("503")
+
+    monkeypatch.setattr(pipeline, "enhance", lambda image, cfg, feedback=None: image.copy())
+    monkeypatch.setattr(fidelity, "judge_gemini", lambda o, e, cfg: Verdict(9, []))
+    monkeypatch.setattr(fidelity, "check_style", down)
+    result = process(photo, no_ml(enhance_provider="gemini", output_size=256))
+    assert result.meta["enhance"]["used"] is True
+    assert "needs_review" not in result.meta["enhance"]

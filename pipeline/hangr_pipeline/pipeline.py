@@ -117,8 +117,10 @@ def process(
         if note:
             enhance_meta["note"] = note
         feedback = [*pinned, *(feedback or [])] or None
-        # Best judged attempt so far: (score, enhanced image, its cutout).
-        best: tuple[int, Image.Image, tuple[np.ndarray, np.ndarray]] | None = None
+        # Best judged attempt so far: ((follows the style, score), enhanced
+        # image, its cutout). An attempt in the house style beats a
+        # higher-scoring one that isn't.
+        best: tuple[tuple[bool, int], Image.Image, tuple[np.ndarray, np.ndarray]] | None = None
         # An attempt the judge couldn't check (judge call failed).
         unchecked: tuple[Image.Image, tuple[np.ndarray, np.ndarray]] | None = None
         for _ in range(1 + cfg.enhance_retries):
@@ -144,12 +146,29 @@ def process(
                     attempt["judge_error"] = str(exc)
                     unchecked = (enhanced, e_cut)
                     break
+                if verdict.score >= cfg.fidelity_min_score:
+                    # Only an image good enough to keep needs a style check
+                    # (one more call); anything worse is retried anyway.
+                    try:
+                        style_fixes = timed("style", fidelity.check_style, enhanced, cfg)
+                    except Exception as exc:  # the image already passed the judge
+                        log.warning("style check failed, skipping it: %s", exc)
+                        style_fixes = []
+                    if style_fixes:
+                        verdict = replace(verdict, issues=[*verdict.issues, *style_fixes],
+                                          style_ok=False)
+                if verdict.category and "detected_category" not in enhance_meta:
+                    enhance_meta["detected_category"] = verdict.category
+                    if verdict.subcategory:
+                        enhance_meta["detected_subcategory"] = verdict.subcategory
                 attempt["score"] = verdict.score
                 attempt["issues"] = verdict.issues
-                passed = verdict.score >= cfg.fidelity_min_score
+                attempt["style_ok"] = verdict.style_ok
+                passed = verdict.score >= cfg.fidelity_min_score and verdict.style_ok
                 feedback = [*pinned, *verdict.issues] or None
-                if best is None or verdict.score > best[0]:
-                    best = (verdict.score, enhanced, e_cut)
+                rank = (verdict.style_ok, verdict.score)
+                if best is None or rank > best[0]:
+                    best = (rank, enhanced, e_cut)
             else:
                 score = fidelity.similarity(*cut_original(), *e_cut)
                 attempt["fidelity"] = round(score, 3)
@@ -160,13 +179,17 @@ def process(
                 break
             log.warning("enhanced image failed the fidelity check: %s", attempt)
 
-        if chosen is None and best is not None and best[0] >= cfg.fidelity_review_score:
+        if chosen is None and best is not None and best[0][1] >= cfg.fidelity_review_score:
             # Close but not quite: better than a raw photo, but let the user
             # look at it (the app can offer "retry" / "use my photo").
-            chosen = best[2]
-            result.assets["enhanced.webp"] = to_webp_bytes(best[1])
+            (style_ok, score), image, chosen = best
+            result.assets["enhanced.webp"] = to_webp_bytes(image)
             enhance_meta["needs_review"] = True
-            enhance_meta["review_reason"] = "low_score"
+            # "style": the item matches the photo but isn't shown like the rest
+            # of the closet (e.g. laid flat instead of on a mannequin).
+            enhance_meta["review_reason"] = (
+                "style" if score >= cfg.fidelity_min_score and not style_ok else "low_score"
+            )
         elif chosen is None and unchecked is not None:
             # Unknown fidelity, so never accepted outright: shown flagged,
             # the same way as a near miss.
