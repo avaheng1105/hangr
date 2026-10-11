@@ -20,6 +20,10 @@ type AuthState = {
   // Resolves to true when the account still needs its email confirmed.
   signUp(email: string, password: string): Promise<boolean>;
   signOut(): Promise<void>;
+  // Emails a code for setting a new password.
+  sendPasswordReset(email: string): Promise<void>;
+  // Checks the emailed code, sets the new password and signs in.
+  resetPassword(email: string, code: string, password: string): Promise<void>;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -27,6 +31,8 @@ const AuthContext = createContext<AuthState | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(!supabase);
   const [session, setSession] = useState<Session | null>(null);
+  // Keeps the login screen up while a reset signs in and sets the password.
+  const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     if (!supabase) return;
@@ -45,7 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ready,
       email: isGuest ? null : (user?.email ?? null),
       userId: user?.id ?? null,
-      needsSignIn: supabase !== null && (!user || isGuest),
+      needsSignIn: supabase !== null && (!user || isGuest || resetting),
       isGuest,
 
       async signIn(email, password) {
@@ -75,8 +81,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { error } = await supabase.auth.signOut();
         if (error) throw error;
       },
+
+      async sendPasswordReset(email) {
+        if (!supabase) return;
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
+        if (error) throw error;
+      },
+
+      async resetPassword(email, code, password) {
+        if (!supabase) return;
+        setResetting(true);
+        try {
+          const { error } = await supabase.auth.verifyOtp({
+            email: email.trim(),
+            token: code.trim(),
+            type: 'recovery',
+          });
+          if (error) throw error;
+          const { error: updateError } = await supabase.auth.updateUser({ password });
+          if (updateError) {
+            // Don't leave them signed in without the password they chose.
+            await supabase.auth.signOut();
+            throw updateError;
+          }
+        } finally {
+          setResetting(false);
+        }
+      },
     };
-  }, [ready, session]);
+  }, [ready, session, resetting]);
 
   return <AuthContext.Provider value={state}>{children}</AuthContext.Provider>;
 }

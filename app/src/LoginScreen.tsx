@@ -32,35 +32,77 @@ function authMessage(e: unknown): string {
         return `Use a password of at least ${PASSWORD_MIN_CHARS} characters.`;
       case 'over_email_send_rate_limit':
         return "We've sent too many emails for now. Try again in an hour.";
+      case 'otp_expired':
+        return 'That code is wrong or has expired. Check the email, or send a new code.';
+      case 'same_password':
+        return "That's already your password. Go back and sign in with it.";
     }
   }
   return e instanceof Error ? e.message : String(e);
 }
 
+type Mode = 'signIn' | 'create' | 'forgot' | 'reset';
+
+const TITLES: Record<Mode, string> = {
+  signIn: 'Sign in',
+  create: 'Create your account',
+  forgot: 'Forgot your password?',
+  reset: 'Choose a new password',
+};
+
+const BUTTONS: Record<Mode, string> = {
+  signIn: 'Sign in',
+  create: 'Create account',
+  forgot: 'Email me a code',
+  reset: 'Save password and sign in',
+};
+
 // Shown instead of the app until the user signs in.
 export function LoginScreen() {
-  const { signIn, signUp, isGuest } = useAuth();
+  const { signIn, signUp, sendPasswordReset, resetPassword, isGuest } = useAuth();
   // A guest from before login existed most likely wants to keep their closet.
-  const [creating, setCreating] = useState(isGuest);
+  const [mode, setMode] = useState<Mode>(isGuest ? 'create' : 'signIn');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sentTo, setSentTo] = useState<string | null>(null);
+  // A note above the form, e.g. where an email went.
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const valid = /\S+@\S+\.\S+/.test(email.trim()) && password.length >= PASSWORD_MIN_CHARS;
+  const emailOk = /\S+@\S+\.\S+/.test(email.trim());
+  const passwordOk = password.length >= PASSWORD_MIN_CHARS;
+  const valid =
+    mode === 'forgot'
+      ? emailOk
+      : mode === 'reset'
+        ? /^\d{6,10}$/.test(code.trim()) && passwordOk
+        : emailOk && passwordOk;
+
+  const go = (next: Mode, note: string | null = null) => {
+    setMode(next);
+    setError(null);
+    setNotice(note);
+    setPassword('');
+  };
 
   const submit = async () => {
     setBusy(true);
     setError(null);
     try {
-      if (creating) {
-        const mustConfirm = await signUp(email, password);
-        if (mustConfirm) {
-          setSentTo(email.trim());
-          setCreating(false);
-          setPassword('');
+      if (mode === 'create') {
+        if (await signUp(email, password)) {
+          go(
+            'signIn',
+            `We sent a link to ${email.trim()}. Open it to confirm your email, then sign in here.`,
+          );
         }
+      } else if (mode === 'forgot') {
+        await sendPasswordReset(email);
+        setCode('');
+        go('reset', `If ${email.trim()} has an account, we've emailed it a code.`);
+      } else if (mode === 'reset') {
+        await resetPassword(email, code, password);
       } else {
         await signIn(email, password);
       }
@@ -71,10 +113,7 @@ export function LoginScreen() {
     }
   };
 
-  const switchMode = () => {
-    setCreating(!creating);
-    setError(null);
-  };
+  const newPassword = mode === 'create' || mode === 'reset';
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -83,38 +122,58 @@ export function LoginScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <Text style={styles.brand}>Hangr</Text>
-        <Text style={styles.title}>{creating ? 'Create your account' : 'Sign in'}</Text>
-        {creating && isGuest && (
+        <Text style={styles.title}>{TITLES[mode]}</Text>
+        {mode === 'create' && isGuest && (
           <Text style={styles.note}>The closet on this phone moves into your new account.</Text>
         )}
-        {sentTo && !creating && (
-          <Text style={styles.sent}>
-            We sent a link to {sentTo}. Open it to confirm your email, then sign in here.
-          </Text>
+        {mode === 'forgot' && (
+          <Text style={styles.note}>We&apos;ll email you a code to set a new one.</Text>
         )}
+        {notice && <Text style={styles.sent}>{notice}</Text>}
 
-        <TextInput
-          style={styles.input}
-          value={email}
-          onChangeText={setEmail}
-          placeholder="Email"
-          placeholderTextColor="#9A9DAA"
-          autoCapitalize="none"
-          autoComplete="email"
-          keyboardType="email-address"
-          textContentType="emailAddress"
-        />
-        <TextInput
-          style={styles.input}
-          value={password}
-          onChangeText={setPassword}
-          placeholder={creating ? `Password (${PASSWORD_MIN_CHARS}+ characters)` : 'Password'}
-          placeholderTextColor="#9A9DAA"
-          secureTextEntry
-          autoComplete={creating ? 'new-password' : 'current-password'}
-          textContentType={creating ? 'newPassword' : 'password'}
-          onSubmitEditing={() => valid && !busy && void submit()}
-        />
+        {mode !== 'reset' && (
+          <TextInput
+            style={styles.input}
+            value={email}
+            onChangeText={setEmail}
+            placeholder="Email"
+            placeholderTextColor="#9A9DAA"
+            autoCapitalize="none"
+            autoComplete="email"
+            keyboardType="email-address"
+            textContentType="emailAddress"
+          />
+        )}
+        {mode === 'reset' && (
+          <TextInput
+            style={styles.input}
+            value={code}
+            onChangeText={setCode}
+            placeholder="Code from the email"
+            placeholderTextColor="#9A9DAA"
+            keyboardType="number-pad"
+            autoComplete="one-time-code"
+            textContentType="oneTimeCode"
+            maxLength={10}
+          />
+        )}
+        {mode !== 'forgot' && (
+          <TextInput
+            style={styles.input}
+            value={password}
+            onChangeText={setPassword}
+            placeholder={
+              newPassword
+                ? `${mode === 'reset' ? 'New password' : 'Password'} (${PASSWORD_MIN_CHARS}+ characters)`
+                : 'Password'
+            }
+            placeholderTextColor="#9A9DAA"
+            secureTextEntry
+            autoComplete={newPassword ? 'new-password' : 'current-password'}
+            textContentType={newPassword ? 'newPassword' : 'password'}
+            onSubmitEditing={() => valid && !busy && void submit()}
+          />
+        )}
         {error && <Text style={styles.error}>{error}</Text>}
 
         <Pressable
@@ -126,13 +185,27 @@ export function LoginScreen() {
           {busy ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
-            <Text style={styles.buttonText}>{creating ? 'Create account' : 'Sign in'}</Text>
+            <Text style={styles.buttonText}>{BUTTONS[mode]}</Text>
           )}
         </Pressable>
 
-        <Pressable onPress={switchMode} hitSlop={8} accessibilityRole="button">
+        {mode === 'signIn' && (
+          <Pressable onPress={() => go('forgot')} hitSlop={8} accessibilityRole="button">
+            <Text style={styles.link}>Forgot password?</Text>
+          </Pressable>
+        )}
+        {mode === 'reset' && (
+          <Pressable onPress={() => go('forgot')} hitSlop={8} accessibilityRole="button">
+            <Text style={styles.link}>Send a new code</Text>
+          </Pressable>
+        )}
+        <Pressable
+          onPress={() => go(mode === 'signIn' ? 'create' : 'signIn')}
+          hitSlop={8}
+          accessibilityRole="button"
+        >
           <Text style={styles.link}>
-            {creating ? 'Already have an account? Sign in' : 'New to Hangr? Create an account'}
+            {mode === 'signIn' ? 'New to Hangr? Create an account' : 'Back to sign in'}
           </Text>
         </Pressable>
       </KeyboardAvoidingView>
