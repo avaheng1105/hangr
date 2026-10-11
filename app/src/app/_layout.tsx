@@ -1,12 +1,25 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { ActivityIndicator, View } from 'react-native';
 
+import { AuthProvider, useAuth } from '../AuthContext';
 import { ClosetProvider } from '../ClosetContext';
+import { LoginScreen } from '../LoginScreen';
 import { colors } from '../theme';
 
-export default function RootLayout() {
+// The app once someone is signed in. A new account gets a fresh closet.
+function SignedIn() {
+  const { ready, needsSignIn, userId } = useAuth();
+  if (!ready) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', backgroundColor: colors.background }}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
+  if (needsSignIn) return <LoginScreen />;
   return (
-    <ClosetProvider>
+    <ClosetProvider key={userId ?? 'sample'}>
       <Stack
         screenOptions={{
           headerTintColor: colors.accent,
@@ -21,7 +34,15 @@ export default function RootLayout() {
         <Stack.Screen name="outfit/[id]" options={{ title: '' }} />
         <Stack.Screen name="canvas/[id]" options={{ title: '' }} />
       </Stack>
-      <StatusBar style="dark" />
     </ClosetProvider>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <AuthProvider>
+      <SignedIn />
+      <StatusBar style="dark" />
+    </AuthProvider>
   );
 }
