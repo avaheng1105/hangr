@@ -11,8 +11,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useAuth } from './AuthContext';
+import { useAuth, type Confirmation } from './AuthContext';
 import { colors } from './theme';
+
+// Emails from a new sender often land in junk.
+const JUNK = "Can't find it? Check your junk or spam folder.";
 
 // Same as the backend's minimum (Supabase auth password_min_length).
 const PASSWORD_MIN_CHARS = 6;
@@ -24,7 +27,7 @@ function authMessage(e: unknown): string {
       case 'invalid_credentials':
         return "That email and password don't match an account.";
       case 'email_not_confirmed':
-        return 'Confirm your email first: open the link we sent you, then sign in.';
+        return 'Confirm your email first with the code we sent you.';
       case 'user_already_exists':
       case 'email_exists':
         return 'There is already an account with that email. Sign in instead.';
@@ -41,11 +44,12 @@ function authMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-type Mode = 'signIn' | 'create' | 'forgot' | 'reset';
+type Mode = 'signIn' | 'create' | 'confirm' | 'forgot' | 'reset';
 
 const TITLES: Record<Mode, string> = {
   signIn: 'Sign in',
   create: 'Create your account',
+  confirm: 'Confirm your email',
   forgot: 'Forgot your password?',
   reset: 'Choose a new password',
 };
@@ -53,18 +57,22 @@ const TITLES: Record<Mode, string> = {
 const BUTTONS: Record<Mode, string> = {
   signIn: 'Sign in',
   create: 'Create account',
+  confirm: 'Confirm and sign in',
   forgot: 'Email me a code',
   reset: 'Save password and sign in',
 };
 
 // Shown instead of the app until the user signs in.
 export function LoginScreen() {
-  const { signIn, signUp, sendPasswordReset, resetPassword, isGuest } = useAuth();
+  const { signIn, signUp, confirmEmail, resendCode, sendPasswordReset, resetPassword, isGuest } =
+    useAuth();
   // A guest from before login existed most likely wants to keep their closet.
   const [mode, setMode] = useState<Mode>(isGuest ? 'create' : 'signIn');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
+  // Which code the confirm step is waiting for.
+  const [kind, setKind] = useState<Confirmation>('signup');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // A note above the form, e.g. where an email went.
@@ -72,18 +80,37 @@ export function LoginScreen() {
 
   const emailOk = /\S+@\S+\.\S+/.test(email.trim());
   const passwordOk = password.length >= PASSWORD_MIN_CHARS;
+  const codeOk = /^\d{6,10}$/.test(code.trim());
   const valid =
     mode === 'forgot'
       ? emailOk
-      : mode === 'reset'
-        ? /^\d{6,10}$/.test(code.trim()) && passwordOk
-        : emailOk && passwordOk;
+      : mode === 'confirm'
+        ? codeOk
+        : mode === 'reset'
+          ? codeOk && passwordOk
+          : emailOk && passwordOk;
 
   const go = (next: Mode, note: string | null = null) => {
     setMode(next);
     setError(null);
     setNotice(note);
     setPassword('');
+    setCode('');
+  };
+
+  const confirmStep = (next: Confirmation, note: string) => {
+    setKind(next);
+    go('confirm', `${note} ${JUNK}`);
+  };
+
+  const resend = async () => {
+    setError(null);
+    try {
+      await resendCode(email, kind);
+      setNotice(`We sent a new code to ${email.trim()}. ${JUNK}`);
+    } catch (e) {
+      setError(authMessage(e));
+    }
   };
 
   const submit = async () => {
@@ -91,23 +118,27 @@ export function LoginScreen() {
     setError(null);
     try {
       if (mode === 'create') {
-        if (await signUp(email, password)) {
-          go(
-            'signIn',
-            `We sent a link to ${email.trim()}. Open it to confirm your email, then sign in here.`,
-          );
-        }
+        const needs = await signUp(email, password);
+        if (needs) confirmStep(needs, `We emailed a code to ${email.trim()}. Enter it below.`);
+      } else if (mode === 'confirm') {
+        await confirmEmail(email, code, kind);
       } else if (mode === 'forgot') {
         await sendPasswordReset(email);
-        setCode('');
-        go('reset', `If ${email.trim()} has an account, we've emailed it a code.`);
+        go('reset', `If ${email.trim()} has an account, we've emailed it a code. ${JUNK}`);
       } else if (mode === 'reset') {
         await resetPassword(email, code, password);
       } else {
         await signIn(email, password);
       }
     } catch (e) {
-      setError(authMessage(e));
+      if (mode === 'signIn' && e instanceof AuthError && e.code === 'email_not_confirmed') {
+        confirmStep(
+          'signup',
+          "Your email isn't confirmed yet. Enter the code we emailed you, or send a new one.",
+        );
+      } else {
+        setError(authMessage(e));
+      }
     } finally {
       setBusy(false);
     }
@@ -131,7 +162,7 @@ export function LoginScreen() {
         )}
         {notice && <Text style={styles.sent}>{notice}</Text>}
 
-        {mode !== 'reset' && (
+        {mode !== 'reset' && mode !== 'confirm' && (
           <TextInput
             style={styles.input}
             value={email}
@@ -144,7 +175,7 @@ export function LoginScreen() {
             textContentType="emailAddress"
           />
         )}
-        {mode === 'reset' && (
+        {(mode === 'reset' || mode === 'confirm') && (
           <TextInput
             style={styles.input}
             value={code}
@@ -157,7 +188,7 @@ export function LoginScreen() {
             maxLength={10}
           />
         )}
-        {mode !== 'forgot' && (
+        {mode !== 'forgot' && mode !== 'confirm' && (
           <TextInput
             style={styles.input}
             value={password}
@@ -196,6 +227,11 @@ export function LoginScreen() {
         )}
         {mode === 'reset' && (
           <Pressable onPress={() => go('forgot')} hitSlop={8} accessibilityRole="button">
+            <Text style={styles.link}>Send a new code</Text>
+          </Pressable>
+        )}
+        {mode === 'confirm' && (
+          <Pressable onPress={() => void resend()} hitSlop={8} accessibilityRole="button">
             <Text style={styles.link}>Send a new code</Text>
           </Pressable>
         )}

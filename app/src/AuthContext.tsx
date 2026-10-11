@@ -3,6 +3,10 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
 import { supabase } from './supabase';
 
+// A new account confirms its email ('signup'); a guest turning into an
+// account confirms the address it adds ('email_change').
+export type Confirmation = 'signup' | 'email_change';
+
 type AuthState = {
   // False until the saved session has been read.
   ready: boolean;
@@ -17,8 +21,13 @@ type AuthState = {
   // A guest from before login existed: creating an account keeps their closet.
   isGuest: boolean;
   signIn(email: string, password: string): Promise<void>;
-  // Resolves to true when the account still needs its email confirmed.
-  signUp(email: string, password: string): Promise<boolean>;
+  // Resolves to the kind of code emailed to confirm the address, or null
+  // when the account is ready.
+  signUp(email: string, password: string): Promise<Confirmation | null>;
+  // Checks the emailed code and signs in.
+  confirmEmail(email: string, code: string, kind: Confirmation): Promise<void>;
+  // Emails a new code.
+  resendCode(email: string, kind: Confirmation): Promise<void>;
   signOut(): Promise<void>;
   // Emails a code for setting a new password.
   sendPasswordReset(email: string): Promise<void>;
@@ -61,19 +70,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
 
       async signUp(email, password) {
-        if (!supabase) return false;
+        if (!supabase) return null;
         if (isGuest) {
           // Turn the guest into an account, so its closet stays.
           const { data, error } = await supabase.auth.updateUser({ email: email.trim(), password });
           if (error) throw error;
-          if (data.user.new_email) return true;
+          if (data.user.new_email) return 'email_change';
           // The new token says the account isn't a guest any more.
           await supabase.auth.refreshSession();
-          return false;
+          return null;
         }
         const { data, error } = await supabase.auth.signUp({ email: email.trim(), password });
         if (error) throw error;
-        return data.session === null;
+        return data.session === null ? 'signup' : null;
+      },
+
+      async confirmEmail(email, code, kind) {
+        if (!supabase) return;
+        const { error } = await supabase.auth.verifyOtp({
+          email: email.trim(),
+          token: code.trim(),
+          type: kind,
+        });
+        if (error) throw error;
+        // A guest's token still says guest until it's refreshed.
+        if (kind === 'email_change') await supabase.auth.refreshSession();
+      },
+
+      async resendCode(email, kind) {
+        if (!supabase) return;
+        const { error } = await supabase.auth.resend({ email: email.trim(), type: kind });
+        if (error) throw error;
       },
 
       async signOut() {
