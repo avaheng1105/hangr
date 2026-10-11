@@ -1,16 +1,29 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import {
+  Alert,
+  Image,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
+import { useAuth } from '../../AuthContext';
 import { useCloset } from '../../ClosetContext';
 import { displayThumb } from '../../items';
 import { closetStats, type Worn } from '../../stats';
 import { colors } from '../../theme';
 
-// About Me: who you are (a guest until sign-in is built) and your closet in numbers.
+// About Me: who you're signed in as and your closet in numbers.
 export default function AboutMe() {
   const { items, outfits, days, live } = useCloset();
+  const { email, signOut } = useAuth();
+  const [error, setError] = useState<string | null>(null);
   const stats = closetStats(items, outfits, days);
   const biggest = Math.max(1, ...stats.sections.map((s) => s.count));
 
@@ -21,8 +34,12 @@ export default function AboutMe() {
           <Ionicons name="person" size={40} color={colors.muted} />
         </View>
         <View style={styles.profileText}>
-          <Text style={styles.name}>Guest</Text>
-          <Text style={styles.subtle}>Sign-in is coming soon.</Text>
+          <Text style={styles.name} numberOfLines={1}>
+            {email ? email.split('@')[0] : 'Sample closet'}
+          </Text>
+          <Text style={styles.subtle} numberOfLines={1}>
+            {email ?? 'Not signed in: the backend is not set up in this build.'}
+          </Text>
         </View>
       </View>
 
@@ -62,10 +79,35 @@ export default function AboutMe() {
       <Text style={styles.heading}>Settings</Text>
       <View style={styles.card}>
         <Setting label="Closet" value={live ? 'Saved to your account' : 'Sample closet'} />
-        <Setting label="Version" value={Constants.expoConfig?.version ?? '-'} last />
+        <Setting label="Version" value={Constants.expoConfig?.version ?? '-'} last={!email} />
+        {email && (
+          <Pressable
+            style={styles.setting}
+            onPress={() => confirmSignOut(signOut, setError)}
+            accessibilityRole="button"
+          >
+            <Text style={styles.signOut}>Sign out</Text>
+          </Pressable>
+        )}
       </View>
+      {error && <Text style={styles.error}>{error}</Text>}
     </ScrollView>
   );
+}
+
+function confirmSignOut(signOut: () => Promise<void>, setError: (e: string | null) => void) {
+  const run = () => {
+    setError(null);
+    signOut().catch((e) =>
+      setError(`Couldn't sign out: ${e instanceof Error ? e.message : String(e)}`),
+    );
+  };
+  // Alert has no buttons on web.
+  if (Platform.OS === 'web') return run();
+  Alert.alert('Sign out?', 'Your closet stays in your account.', [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Sign out', style: 'destructive', onPress: run },
+  ]);
 }
 
 function Total({ value, label }: { value: number; label: string }) {
@@ -150,4 +192,6 @@ const styles = StyleSheet.create({
   },
   settingDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   settingLabel: { fontSize: 15, color: colors.text },
+  signOut: { fontSize: 15, fontWeight: '600', color: colors.danger },
+  error: { fontSize: 14, color: colors.danger, marginTop: 8, textAlign: 'center' },
 });

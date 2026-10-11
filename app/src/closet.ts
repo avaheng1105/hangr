@@ -122,13 +122,11 @@ async function functionError(error: unknown): Promise<Error> {
 }
 
 function liveCloset(client: NonNullable<typeof supabase>): Closet {
-  // A guest account per device for now; it can be linked to an email later.
+  // The login screen signs the user in before the closet loads.
   const signIn = async () => {
     const { data } = await client.auth.getSession();
-    if (data.session) return data.session.user.id;
-    const { data: anon, error } = await client.auth.signInAnonymously();
-    if (error || !anon.user) throw error ?? new Error('Could not sign in');
-    return anon.user.id;
+    if (!data.session) throw new Error('You are signed out');
+    return data.session.user.id;
   };
 
   const startJob = async (body: object) => {

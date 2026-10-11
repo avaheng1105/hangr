@@ -49,7 +49,7 @@ export function ClosetProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    // Items first: loading them signs the user in.
+    // Items first: loading them checks the user is signed in.
     closet
       .load()
       .then((loaded) => {
